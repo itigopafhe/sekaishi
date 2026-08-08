@@ -1,0 +1,1526 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>歴史年表管理</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  :root{
+    --bg:#efe6d2; --card:#fffdf6; --ink:#2c2620; --sub:#8c7f6a;
+    --line:#e2d7bd; --blue:#2f5d8a; --red:#b5452f; --green:#4f7a4a;
+    --gold:#b58a36; --gold-soft:#c9a85f;
+    --radius:14px; --shadow:0 2px 10px rgba(74,58,32,.10);
+    --serif:"Hiragino Mincho ProN","Yu Mincho",YuMincho,"Noto Serif JP",Georgia,"Times New Roman",serif;
+    --safe: env(safe-area-inset-bottom,0px);
+  }
+  html,body{height:100%;}
+  body{
+    font-family:-apple-system,BlinkMacSystemFont,"Hiragino Sans","Yu Gothic",Meiryo,sans-serif;
+    color:var(--ink); -webkit-font-smoothing:antialiased; overflow:hidden;
+    background:#e7dcc1;
+  }
+  #app{ max-width:480px; margin:0 auto; height:100dvh; position:relative; overflow:hidden;
+    background:
+      radial-gradient(120% 80% at 50% -10%, rgba(255,252,242,.9), rgba(255,252,242,0) 60%),
+      radial-gradient(90% 60% at 110% 105%, rgba(120,95,45,.10), rgba(120,95,45,0) 55%),
+      radial-gradient(90% 60% at -10% 100%, rgba(120,95,45,.08), rgba(120,95,45,0) 55%),
+      linear-gradient(160deg,#f3ead3 0%,#ece1c6 55%,#e6d9ba 100%);
+  }
+  .screen{ position:absolute; inset:0; display:flex; flex-direction:column; background:transparent;
+    transform:translateX(100%); transition:transform .28s cubic-bezier(.4,0,.2,1); }
+  .screen.active{ transform:translateX(0); z-index:2; }
+  .screen.root{ transform:translateX(0); }
+  .screen.behind{ transform:translateX(-22%); z-index:1; }
+
+  /* Header */
+  header{ display:flex; align-items:center; gap:8px; padding:15px 16px 11px;
+    background:linear-gradient(180deg, rgba(247,240,224,.96), rgba(243,235,214,.9));
+    backdrop-filter:saturate(160%) blur(12px);
+    border-bottom:1px solid var(--line); box-shadow:0 1px 0 rgba(255,255,255,.6) inset, 0 2px 6px rgba(74,58,32,.06);
+    position:relative; z-index:5; min-height:56px; }
+  header h1{ font-family:var(--serif); font-size:21px; font-weight:700; letter-spacing:.02em; color:var(--ink);
+    flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .hbtn{ border:none; background:none; color:var(--blue); font-size:17px; cursor:pointer; padding:6px; display:flex; align-items:center; gap:4px; }
+  .hbtn.plus{ font-size:28px; line-height:1; width:36px; height:36px; justify-content:center; }
+  .hbtn:active{ opacity:.5; }
+  .back::before{ content:"‹"; font-size:30px; line-height:.7; margin-right:2px; }
+
+  .content{ flex:1; overflow-y:auto; -webkit-overflow-scrolling:touch; padding:12px 16px calc(28px + var(--safe)); }
+
+  /* List rows */
+  .row{ display:flex; align-items:center; gap:13px; background:var(--card); padding:13px 14px;
+    border-radius:var(--radius); margin-bottom:10px; box-shadow:var(--shadow); cursor:pointer;
+    border:1px solid var(--line); transition:transform .12s, box-shadow .12s; }
+  .row:active{ transform:scale(.985); box-shadow:0 1px 4px rgba(74,58,32,.12); }
+  .row.dragging{ opacity:.5; box-shadow:0 8px 22px rgba(74,58,32,.22); }
+  .row.edit-mode{ cursor:default; }
+  .icon{ width:44px; height:44px; border-radius:50%; flex:0 0 44px; display:flex; align-items:center; justify-content:center;
+    font-size:21px; border:1px solid rgba(120,95,45,.18); box-shadow:0 1px 3px rgba(74,58,32,.12), inset 0 1px 2px rgba(255,255,255,.5); }
+  .row .meta{ flex:1; min-width:0; }
+  .row .meta .name{ font-family:var(--serif); font-size:16px; font-weight:700; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .row .meta .desc{ font-size:12.5px; color:var(--sub); margin-top:3px; }
+  .chev{ color:#c7c7cc; font-size:20px; }
+  .handle{ color:#c7c7cc; font-size:22px; cursor:grab; padding:0 4px; touch-action:none; }
+  .del-btn{ background:var(--red); color:#fff; border:none; width:28px;height:28px;border-radius:50%; font-size:18px; cursor:pointer; flex:0 0 28px; display:flex;align-items:center;justify-content:center;}
+  .empty{ text-align:center; color:var(--sub); padding:60px 20px; font-size:15px; }
+  .empty .big{ font-size:46px; margin-bottom:10px; }
+
+  /* toolbar */
+  .toolbar{ display:flex; gap:8px; padding:0 0 12px; }
+  .chipbtn{ flex:1; background:var(--card); border:1px solid var(--line); border-radius:10px; padding:9px; font-size:14px; font-weight:600; color:var(--blue); cursor:pointer; }
+  .chipbtn:active{ background:#f0f0f5; }
+  .chipbtn.on{ background:var(--blue); color:#fff; border-color:var(--blue); }
+
+  /* Sticky search bar */
+  .subbar{ padding:8px 16px 10px; background:linear-gradient(180deg,rgba(247,240,224,.96),rgba(243,235,214,.88)); backdrop-filter:saturate(160%) blur(12px);
+    border-bottom:1px solid var(--line); position:relative; z-index:4; }
+  .searchbar{ position:relative; }
+  .searchbar input{ width:100%; padding:10px 34px 10px 38px; border-radius:10px; border:1px solid var(--line); background:#fbf6e8; font-size:16px; color:var(--ink); }
+  .searchbar::before{ content:"🔍"; position:absolute; left:12px; top:50%; transform:translateY(-50%); font-size:14px; opacity:.6; }
+  .clearbtn{ position:absolute; right:8px; top:50%; transform:translateY(-50%); border:none; background:#b8b8bf; color:#fff;
+    width:20px; height:20px; border-radius:50%; font-size:11px; line-height:1; cursor:pointer; display:none; }
+  .clearbtn.show{ display:block; }
+  /* Search results */
+  .res-group{ font-size:12px; font-weight:700; color:var(--sub); margin:14px 2px 7px; }
+  .res-hl{ background:#fff2a8; border-radius:3px; padding:0 1px; }
+  .ev.flash{ animation:flash 1.7s ease; }
+  @keyframes flash{ 0%,40%{ box-shadow:0 0 0 3px var(--gold); background:#fbf3d8; } 100%{ box-shadow:var(--shadow); background:var(--card); } }
+  .tl{ position:relative; padding-left:20px; }
+  .tl::before{ content:""; position:absolute; left:6px; top:8px; bottom:8px; width:2px; background:linear-gradient(var(--gold-soft),var(--line)); }
+  .ev{ position:relative; display:flex; align-items:flex-start; gap:12px; cursor:pointer;
+    background:var(--card); border:1px solid var(--line); border-radius:var(--radius);
+    padding:13px 15px; margin-bottom:12px; box-shadow:var(--shadow); transition:transform .12s; }
+  .ev:active{ transform:scale(.99); }
+  .ev::before{ content:""; position:absolute; left:-19px; top:21px; width:12px; height:12px; border-radius:50%;
+    background:var(--card); border:3px solid var(--gold); box-shadow:0 0 0 2px var(--bg); }
+  .ev .ev-main{ flex:1; min-width:0; }
+  .ev .ev-side{ flex:0 0 auto; display:flex; flex-direction:column; align-items:flex-end; gap:7px; padding-left:6px; max-width:44%; }
+  .ev .ev-year{ font-family:var(--serif); font-size:28px; font-weight:700; line-height:1; color:var(--ink); text-align:right; white-space:nowrap; }
+  .ev .ev-year .bc{ font-size:14px; color:var(--gold); margin-right:2px; vertical-align:1px; }
+  .ev .ev-yearsub{ font-size:11.5px; color:var(--sub); text-align:right; margin-top:2px; white-space:nowrap; }
+  .ev .ti{ font-family:var(--serif); font-size:16px; font-weight:700; line-height:1.35; }
+  .ev .st{ font-size:13px; color:var(--sub); margin-top:4px; line-height:1.5; }
+  .ev .goro{ font-size:12px; color:var(--green); margin-top:6px; font-style:italic; }
+  .tags{ display:flex; flex-wrap:wrap; gap:5px; margin-top:8px; }
+  .tag{ font-size:11px; background:#f3ecd6; color:#7a5e1f; border:1px solid #e3d3a3; padding:2px 9px; border-radius:20px; }
+  .ev .evactions{ display:flex; gap:9px; align-items:center; margin-top:3px; }
+  .ev .evbtn{ color:var(--sub); background:none;border:none;font-size:13px;cursor:pointer; padding:2px; }
+  .ev .evbtn.edit{ color:var(--blue); }
+  .ev .evcheck{ width:22px;height:22px; border:2px solid var(--line); border-radius:6px; background:#fff; font-size:12px; cursor:pointer; display:flex;align-items:center;justify-content:center; color:transparent; padding:0; }
+  .ev .evcheck.on{ background:var(--red); border-color:var(--red); color:#fff; }
+  /* checklist (quiz multi-select) */
+  .checklist{ max-height:150px; overflow-y:auto; border:1px solid var(--line); border-radius:10px; background:var(--card); }
+  .checklist label{ display:flex; align-items:center; gap:10px; padding:10px 12px; border-bottom:1px solid var(--line); font-size:15px; font-weight:500; color:var(--ink); cursor:pointer; }
+  .checklist label:last-child{ border-bottom:none; }
+  .checklist input{ width:20px; height:20px; accent-color:var(--blue); }
+  .checklist .none{ padding:10px 12px; color:var(--sub); font-size:14px; }
+  /* quiz weak checkbox */
+  .qcheck{ width:26px;height:26px; border:2px solid var(--line); border-radius:7px; background:#fff; font-size:15px; cursor:pointer; display:flex;align-items:center;justify-content:center; flex:0 0 26px; color:transparent; }
+  .qcheck.on{ background:var(--red); border-color:var(--red); color:#fff; }
+
+  /* Action bar bottom */
+  .actionbar{ display:grid; grid-template-columns:repeat(3,1fr); gap:8px; padding:10px 16px calc(10px + var(--safe)); background:linear-gradient(0deg,rgba(247,240,224,.98),rgba(243,235,214,.9)); border-top:1px solid var(--line); }
+  .actbtn{ background:var(--card); border:1px solid var(--line); border-radius:12px; padding:10px 4px; font-size:12px; font-weight:600; color:var(--ink); cursor:pointer; display:flex;flex-direction:column;align-items:center;gap:3px; box-shadow:var(--shadow); }
+  .actbtn .ic{ font-size:19px; }
+  .actbtn:active{ background:#f1e8d0; }
+  .actbtn.primary{ background:linear-gradient(180deg,#36679a,#2f5d8a); color:#fff; border-color:#284f78; }
+
+  /* Forms */
+  .field{ margin-bottom:16px; }
+  .field label{ display:block; font-size:13px; color:var(--sub); margin-bottom:6px; font-weight:600; }
+  .field label.rowlabel{ display:flex; align-items:center; justify-content:space-between; }
+  .field input[type=text], .field textarea{ width:100%; padding:12px; border-radius:10px; border:1px solid var(--line); background:var(--card); font-size:16px; font-family:inherit; }
+  .field textarea{ resize:none; min-height:70px; }
+
+  /* Segmented */
+  .seg{ display:flex; background:#e7dcc1; border-radius:9px; padding:3px; border:1px solid var(--line); }
+  .seg button{ flex:1; border:none; background:none; padding:8px; font-size:14px; font-weight:600; border-radius:7px; cursor:pointer; color:var(--ink); }
+  .seg button.on{ background:#fffdf6; box-shadow:0 1px 3px rgba(74,58,32,.18); }
+
+  /* Color palette */
+  .palette{ display:grid; grid-template-columns:repeat(6,1fr); gap:10px; }
+  .swatch{ aspect-ratio:1; border-radius:50%; cursor:pointer; border:1px solid rgba(0,0,0,.1); position:relative; }
+  .swatch.sel::after{ content:"✓"; position:absolute; inset:0; display:flex; align-items:center; justify-content:center; color:#fff; font-weight:800; text-shadow:0 0 3px rgba(0,0,0,.5); font-size:18px; }
+  .swatch.light.sel::after{ color:#333; text-shadow:none; }
+
+  /* Year display + numpad */
+  .yearbtn{ width:100%; padding:18px; border-radius:12px; border:2px solid var(--blue); background:var(--card); font-size:26px; font-weight:800; cursor:pointer; text-align:center; }
+  .numpad{ position:fixed; left:0; right:0; bottom:0; background:#d8cbab; padding:8px 6px calc(8px + var(--safe)); transform:translateY(110%); transition:transform .3s; z-index:50; max-width:480px; margin:0 auto; box-shadow:0 -4px 16px rgba(74,58,32,.18); }
+  .numpad.show{ transform:translateY(0); }
+  .numpad .grid{ display:grid; grid-template-columns:repeat(3,1fr); gap:7px; }
+  .numpad button{ background:#fffdf6; border:none; border-radius:8px; padding:18px; font-size:22px; font-weight:600; cursor:pointer; box-shadow:0 1px 2px rgba(74,58,32,.2); color:var(--ink); }
+  .numpad button:active{ background:#efe6cf; }
+  .numpad .done{ grid-column:1/4; background:var(--blue); color:#fff; margin-top:4px; font-size:17px; padding:13px; }
+
+  /* Flashcards */
+  .fc-wrap{ display:flex; flex-direction:column; align-items:center; justify-content:center; flex:1; padding:20px; }
+  .flashcard{ width:100%; max-width:360px; aspect-ratio:3/2; cursor:pointer; position:relative; user-select:none; perspective:1600px; }
+  .fc-inner{ position:relative; width:100%; height:100%; transition:transform .55s cubic-bezier(.45,.05,.2,1); transform-style:preserve-3d; }
+  .flashcard.flipped .fc-inner{ transform:rotateY(180deg); }
+  .fc-face{ position:absolute; inset:0; -webkit-backface-visibility:hidden; backface-visibility:hidden;
+    display:flex; align-items:center; justify-content:center; text-align:center; padding:26px; border-radius:20px;
+    border:1px solid var(--line); box-shadow:0 12px 30px rgba(74,58,32,.18); }
+  .fc-front{ background:linear-gradient(165deg,#fffdf7,#f7efd9); }
+  .fc-back{ transform:rotateY(180deg); background:linear-gradient(165deg,#fbf5e3,#efe3c2); }
+  .flashcard .face{ font-family:var(--serif); font-size:23px; font-weight:700; line-height:1.4; color:var(--ink); }
+  .flashcard .yr-face{ font-family:var(--serif); font-size:42px; font-weight:800; color:var(--blue); line-height:1; }
+  .flashcard .yr-face .bc{ font-size:22px; color:var(--gold); margin-right:2px; }
+  .flashcard .hint{ position:absolute; bottom:14px; left:0; right:0; font-size:12px; color:var(--sub); }
+  .fc-mark{ position:absolute; top:12px; right:12px; z-index:3; width:34px;height:34px;border-radius:50%; border:2px solid var(--line); background:#fff; font-size:18px; cursor:pointer; display:flex;align-items:center;justify-content:center; }
+  .fc-mark.on{ background:var(--red); color:#fff; border-color:var(--red); }
+  .fc-nav{ display:flex; gap:14px; margin-top:24px; align-items:center; }
+  .fc-nav button{ background:var(--card); border:1px solid var(--line); border-radius:50%; width:54px;height:54px; font-size:22px; cursor:pointer; }
+  .fc-count{ font-size:14px; color:var(--sub); min-width:64px; text-align:center; }
+  .fc-filter{ display:flex; align-items:center; gap:8px; justify-content:center; margin-top:18px; font-size:14px; }
+  .switch{ position:relative; width:46px; height:27px; }
+  .switch input{ display:none; }
+  .switch .sl{ position:absolute; inset:0; background:#ccc; border-radius:20px; transition:.2s; }
+  .switch .sl::before{ content:""; position:absolute; width:23px;height:23px; left:2px; top:2px; background:#fff; border-radius:50%; transition:.2s; }
+  .switch input:checked + .sl{ background:var(--green); }
+  .switch input:checked + .sl::before{ transform:translateX(19px); }
+
+  /* Quiz */
+  .quiz-q{ background:var(--card); border:1px solid var(--line); border-radius:var(--radius); padding:15px; margin-bottom:14px; font-family:var(--serif); font-weight:700; text-align:center; box-shadow:var(--shadow); }
+  .qitem{ display:flex; align-items:center; gap:12px; background:var(--card); border:1px solid var(--line); border-radius:12px; padding:14px; margin-bottom:10px; box-shadow:var(--shadow); touch-action:none; }
+  .qitem.dragging{ opacity:.5; box-shadow:0 8px 22px rgba(74,58,32,.22); }
+  .qitem .qhandle{ color:#c7c7cc; font-size:22px; }
+  .qitem .qti{ flex:1; font-weight:600; }
+  .qitem .qti{ font-family:var(--serif); }
+  .qitem .qans{ font-family:var(--serif); font-weight:800; color:var(--blue); opacity:0; transition:.2s; font-size:18px; }
+  .qitem.revealed .qans{ opacity:1; }
+  .qitem.correct{ border-left:4px solid var(--green); }
+  .qitem.wrong{ border-left:4px solid var(--red); }
+  .overlay-mark{ position:fixed; inset:0; display:flex; align-items:center; justify-content:center; pointer-events:none; z-index:60; }
+  .overlay-mark span{ font-size:200px; font-weight:900; opacity:0; animation:pop .6s forwards; }
+  .overlay-mark.x span{ color:var(--red); }
+  .overlay-mark.o span{ color:var(--green); }
+  @keyframes pop{ 0%{transform:scale(.3);opacity:0;} 50%{transform:scale(1.15);opacity:.95;} 100%{transform:scale(1);opacity:.9;} }
+  .fullbtn{ width:100%; background:var(--blue); color:#fff; border:none; border-radius:12px; padding:15px; font-size:16px; font-weight:700; cursor:pointer; margin-top:8px; }
+  .fullbtn.sec{ background:var(--card); color:var(--blue); border:1px solid var(--line); }
+
+  /* Modal */
+  .modal-bg{ position:fixed; inset:0; background:rgba(0,0,0,.4); display:none; align-items:flex-end; z-index:100; }
+  .modal-bg.show{ display:flex; }
+  .sheet{ background:var(--bg); width:100%; max-width:480px; margin:0 auto; border-radius:20px 20px 0 0; padding:18px 18px calc(24px + var(--safe)); max-height:88dvh; overflow-y:auto; animation:slideup .3s; }
+  @keyframes slideup{ from{transform:translateY(100%);} to{transform:translateY(0);} }
+  .sheet{ box-shadow:0 -8px 30px rgba(74,58,32,.22); border-top:1px solid var(--gold-soft); }
+  .sheet h2{ font-family:var(--serif); font-size:19px; font-weight:700; text-align:center; margin-bottom:16px; }
+  .modal-actions{ display:flex; gap:10px; margin-top:8px; }
+  .modal-actions button{ flex:1; padding:13px; border-radius:11px; border:none; font-size:16px; font-weight:600; cursor:pointer; }
+  .btn-cancel{ background:#e7dcc1; color:var(--ink); }
+  .btn-ok{ background:var(--blue); color:#fff; }
+  select{ width:100%; padding:11px; border-radius:10px; border:1px solid var(--line); background:var(--card); font-size:16px; }
+  .stepper{ display:flex; align-items:center; gap:14px; justify-content:center; }
+  .stepper button{ width:40px;height:40px;border-radius:50%;border:1px solid var(--line);background:var(--card);font-size:20px;cursor:pointer; }
+  .stepper .val{ font-size:22px; font-weight:700; min-width:30px; text-align:center; }
+  .bigbtn{ width:100%; padding:14px; border-radius:12px; border:1px solid var(--line); background:var(--card);
+    font-size:15px; font-weight:600; color:var(--ink); cursor:pointer; margin-bottom:10px; text-align:left; }
+  .bigbtn:active{ background:#f1e8d0; }
+  .bigbtn.primary{ background:var(--blue); color:#fff; border-color:var(--blue); }
+  .sheet-note{ font-size:13px; color:var(--sub); line-height:1.6; margin-bottom:14px; }
+  .sheet-note b{ color:var(--ink); }
+  .hidden{ display:none !important; }
+</style>
+</head>
+<body>
+<div id="app">
+
+  <!-- LIST SCREEN -->
+  <section class="screen root" id="screen-list">
+    <header>
+      <button class="hbtn back hidden" id="list-back" onclick="goRoot()"></button>
+      <h1 id="list-title">年表</h1>
+      <button class="hbtn" onclick="openDataMgmt()" title="データ管理" style="font-size:19px">💾</button>
+      <button class="hbtn" id="list-edit" onclick="toggleEdit()">編集</button>
+      <button class="hbtn plus" onclick="openCreateModal()">＋</button>
+    </header>
+    <div class="subbar">
+      <div class="searchbar"><input type="text" id="list-search" placeholder="フォルダ・年表・出来事を検索" oninput="renderList()">
+      <button class="clearbtn" id="list-clear" onclick="clearListSearch()">✕</button></div>
+    </div>
+    <div class="content" id="list-content"></div>
+  </section>
+
+  <!-- DETAIL SCREEN -->
+  <section class="screen" id="screen-detail">
+    <header>
+      <button class="hbtn back" onclick="showScreen('list')">年表</button>
+      <h1 id="detail-title"></h1>
+      <button class="hbtn" onclick="openTimelineMenu()" title="メニュー" style="font-size:24px;line-height:1">⋯</button>
+    </header>
+    <div class="subbar">
+      <div class="searchbar"><input type="text" id="search-input" placeholder="検索（見出し・説明・年号・タグ・ゴロ）" oninput="renderTimeline()">
+      <button class="clearbtn" id="detail-clear" onclick="clearDetailSearch()">✕</button></div>
+    </div>
+    <div class="content">
+      <div class="tl" id="detail-tl"></div>
+    </div>
+    <div class="actionbar">
+      <button class="actbtn primary" onclick="openAddEvent()"><span class="ic">＋</span>出来事追加</button>
+      <button class="actbtn" onclick="openFlashcards()"><span class="ic">🃏</span>フラッシュ</button>
+      <button class="actbtn" onclick="openQuizSetup()"><span class="ic">🔀</span>並び替え</button>
+    </div>
+  </section>
+
+  <!-- ADD EVENT SCREEN -->
+  <section class="screen" id="screen-add">
+    <header>
+      <button class="hbtn back" onclick="closeAddEvent()">キャンセル</button>
+      <h1 id="add-title">出来事を追加</h1>
+      <button class="hbtn" onclick="saveEvent()" style="font-weight:700">保存</button>
+    </header>
+    <div class="content">
+      <div class="field">
+        <label>開始年号</label>
+        <div class="seg" id="era-seg-start">
+          <button data-era="ad" class="on" onclick="setEra('start','ad')">紀元後</button>
+          <button data-era="bc" onclick="setEra('start','bc')">紀元前</button>
+        </div>
+        <button class="yearbtn" id="year-start" onclick="openNumpad('start')" style="margin-top:8px">0 年</button>
+      </div>
+      <div class="field">
+        <label class="rowlabel"><span>終了年号（任意・期間）</span>
+          <label class="switch"><input type="checkbox" id="end-enabled" onchange="toggleEndYear()"><span class="sl"></span></label>
+        </label>
+        <div id="end-wrap" class="hidden">
+          <div class="seg" id="era-seg-end">
+            <button data-era="ad" class="on" onclick="setEra('end','ad')">紀元後</button>
+            <button data-era="bc" onclick="setEra('end','bc')">紀元前</button>
+          </div>
+          <button class="yearbtn" id="year-end" onclick="openNumpad('end')" style="margin-top:8px">0 年</button>
+        </div>
+      </div>
+      <div class="field">
+        <label>日付（任意・同じ年号の並び替えに使用）</label>
+        <div style="display:flex;gap:10px">
+          <select id="ev-month" style="flex:1"></select>
+          <select id="ev-day" style="flex:1"></select>
+        </div>
+      </div>
+      <div class="field"><label>見出し</label><input type="text" id="ev-title" placeholder="例）大化の改新"></div>
+      <div class="field"><label>説明（サブタイトル）</label><textarea id="ev-sub" placeholder="出来事の説明"></textarea></div>
+      <div class="field"><label>ゴロ合わせ</label><input type="text" id="ev-goro" placeholder="例）むし（64）ご（5）ろし"></div>
+      <div class="field">
+        <label>タグ（カンマ区切り）</label>
+        <input type="text" id="ev-tags" placeholder="例）飛鳥時代, 政治改革">
+      </div>
+    </div>
+    <div class="numpad" id="numpad">
+      <div class="grid">
+        <button onclick="numKey('1')">1</button><button onclick="numKey('2')">2</button><button onclick="numKey('3')">3</button>
+        <button onclick="numKey('4')">4</button><button onclick="numKey('5')">5</button><button onclick="numKey('6')">6</button>
+        <button onclick="numKey('7')">7</button><button onclick="numKey('8')">8</button><button onclick="numKey('9')">9</button>
+        <button onclick="numKey('back')">⌫</button><button onclick="numKey('0')">0</button><button onclick="numKey('clear')">C</button>
+        <button class="done" onclick="closeNumpad()">完了</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- FLASHCARD SCREEN -->
+  <section class="screen" id="screen-fc">
+    <header>
+      <button class="hbtn back" onclick="showScreen('detail')">戻る</button>
+      <h1>フラッシュカード</h1>
+    </header>
+    <div class="content" style="display:flex;flex-direction:column;">
+      <div class="fc-filter">
+        <span>苦手のみ表示</span>
+        <label class="switch"><input type="checkbox" id="fc-weak-only" onchange="startFlashcards()"><span class="sl"></span></label>
+      </div>
+      <div class="fc-wrap" id="fc-wrap"></div>
+    </div>
+  </section>
+
+  <!-- QUIZ SCREEN -->
+  <section class="screen" id="screen-quiz">
+    <header>
+      <button class="hbtn back" onclick="showScreen('detail')">戻る</button>
+      <h1>並び替えクイズ</h1>
+    </header>
+    <div class="content" id="quiz-content"></div>
+  </section>
+
+</div>
+
+<!-- CREATE MODAL -->
+<div class="modal-bg" id="create-modal">
+  <div class="sheet">
+    <h2 id="create-title">新規作成</h2>
+    <div class="seg" id="create-type-seg" style="margin-bottom:16px;">
+      <button data-type="folder" onclick="setCreateType('folder')">フォルダ</button>
+      <button data-type="timeline" class="on" onclick="setCreateType('timeline')">年表</button>
+    </div>
+    <div class="field"><label>名称</label><input type="text" id="create-name" placeholder="名前を入力"></div>
+    <div class="field"><label>アイコンの色</label><div class="palette" id="palette"></div></div>
+    <div class="modal-actions">
+      <button class="btn-cancel" onclick="closeCreateModal()">キャンセル</button>
+      <button class="btn-ok" onclick="confirmCreate()">作成</button>
+    </div>
+  </div>
+</div>
+
+<!-- QUIZ SETUP MODAL -->
+<div class="modal-bg" id="quiz-modal">
+  <div class="sheet">
+    <h2>クイズ設定</h2>
+    <div class="field">
+      <label>出題する年表（複数選択可）</label>
+      <div class="checklist" id="quiz-timeline"></div>
+    </div>
+    <div class="field">
+      <label>タグで絞り込み（複数選択可・任意）</label>
+      <div class="checklist" id="quiz-tag"></div>
+    </div>
+    <div class="field">
+      <label>出題範囲</label>
+      <div class="fc-filter" style="justify-content:flex-start;margin-top:0;">
+        <label class="switch"><input type="checkbox" id="quiz-weak-only" onchange="refreshQuizTags()"><span class="sl"></span></label>
+        <span>苦手マークの出来事のみ出題</span>
+      </div>
+    </div>
+    <div class="field">
+      <label>出題数</label>
+      <div class="stepper">
+        <button onclick="stepQuiz(-1)">−</button>
+        <span class="val" id="quiz-count">4</span>
+        <button onclick="stepQuiz(1)">＋</button>
+      </div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn-cancel" onclick="closeModal('quiz-modal')">キャンセル</button>
+      <button class="btn-ok" onclick="startQuiz()">開始</button>
+    </div>
+  </div>
+</div>
+
+<!-- TIMELINE MENU -->
+<div class="modal-bg" id="tl-menu-modal">
+  <div class="sheet">
+    <h2 id="tl-menu-title">年表メニュー</h2>
+    <button class="bigbtn" onclick="openBulk()">📥 出来事を一気に追加（CSV / Excel）</button>
+    <button class="bigbtn" onclick="exportTimeline()">📤 この年表をエクスポート（JSON）</button>
+    <div class="modal-actions"><button class="btn-cancel" onclick="closeModal('tl-menu-modal')">閉じる</button></div>
+  </div>
+</div>
+
+<!-- BULK IMPORT -->
+<div class="modal-bg" id="bulk-modal">
+  <div class="sheet">
+    <h2>出来事を一気に追加</h2>
+    <p class="sheet-note">CSV または Excel ファイルから複数の出来事をまとめて追加します。<br>
+    <b>「年号」と「出来事」は必須</b>、それ以外（終了年号・月・日・説明・ゴロ合わせ・タグ）は任意です。<br>
+    紀元前は「-44」または「紀元前44」、タグは「;」区切りで入力してください。</p>
+    <button class="bigbtn" onclick="downloadTemplate()">⬇️ ファイルの雛形をダウンロード（CSV）</button>
+    <button class="bigbtn primary" onclick="document.getElementById('bulk-file').click()">📁 ファイルを選択</button>
+    <input type="file" id="bulk-file" accept=".csv,.xlsx,.xls,text/csv" style="display:none" onchange="onBulkFile(this)">
+    <div class="modal-actions"><button class="btn-cancel" onclick="closeModal('bulk-modal')">閉じる</button></div>
+  </div>
+</div>
+
+<!-- DATA MANAGEMENT -->
+<div class="modal-bg" id="data-modal">
+  <div class="sheet">
+    <h2>データ管理（バックアップ）</h2>
+    <div class="seg" id="data-tab-seg" style="margin-bottom:16px;">
+      <button class="on" onclick="dataTab('export')">エクスポート</button>
+      <button onclick="dataTab('import')">インポート</button>
+    </div>
+    <div id="data-export">
+      <p class="sheet-note">すべての年表・フォルダ・出来事を1つのファイルに保存します。データはこの端末のブラウザ内（localStorage）に保存されているため、定期的なバックアップを推奨します。</p>
+      <button class="bigbtn primary" onclick="exportAll()">⬇️ 全データをバックアップ（JSON）</button>
+    </div>
+    <div id="data-import" style="display:none">
+      <p class="sheet-note">バックアップファイルから全データを<b>置き換え</b>て復元します。または、年表ファイルを取り込んで年表を追加できます。</p>
+      <button class="bigbtn" onclick="document.getElementById('backup-file').click()">♻️ バックアップから全データを復元</button>
+      <input type="file" id="backup-file" accept=".json,application/json" style="display:none" onchange="onBackupFile(this)">
+      <button class="bigbtn" onclick="document.getElementById('tl-import-file').click()">📥 年表ファイルを取り込む（年表を追加）</button>
+      <input type="file" id="tl-import-file" accept=".json,application/json" style="display:none" onchange="onTimelineImportFile(this)">
+    </div>
+    <div class="modal-actions"><button class="btn-cancel" onclick="closeModal('data-modal')">閉じる</button></div>
+  </div>
+</div>
+
+<div class="overlay-mark hidden" id="overlay-mark"><span></span></div>
+
+<script>
+/* ============ DATA ============ */
+const PALETTE = ['#ffffff','#2f5d8a','#34c759','#ff3b30','#ff9500','#ffcc00',
+                 '#af52de','#ff2d55','#5ac8fa','#5856d6','#a2845e','#8e8e93'];
+const LIGHT = ['#ffffff','#ffcc00','#5ac8fa'];
+let appData = [];
+let uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2,7);
+
+function load(){
+  try{ const s = localStorage.getItem('chrono_data'); if(s){ appData = JSON.parse(s); migrate(); return; } }catch(e){}
+  seed();
+}
+function save(){ try{ localStorage.setItem('chrono_data', JSON.stringify(appData)); }catch(e){} }
+
+function seed(){
+  const tl = { id:uid(), type:'timeline', name:'日本史 主要年表', color:'#2f5d8a', parentId:null, order:0, events:[
+    ev(645,'大化の改新','中大兄皇子らが蘇我氏を倒す','むしご（645）ろし',['飛鳥時代']),
+    ev(794,'平安京遷都','桓武天皇が都を京都へ','鳴くよ（794）うぐいす',['平安時代']),
+    ev(1192,'鎌倉幕府成立','源頼朝が征夷大将軍に','いい国（1192）つくろう',['鎌倉時代']),
+    ev(1603,'江戸幕府成立','徳川家康が征夷大将軍に','ヒーローおー（1603）',['江戸時代']),
+    ev(1868,'明治維新','明治新政府の成立','人は (18) ろっぱ(68) 維新',['近代']),
+  ]};
+  const folder = { id:uid(), type:'folder', name:'世界史', color:'#ffffff', parentId:null, order:1, events:null };
+  const wtl = { id:uid(), type:'timeline', name:'西洋史', color:'#af52de', parentId:folder.id, order:0, events:[
+    ev(-44,'カエサル暗殺','共和政ローマの動乱','',['古代ローマ']),
+    ev(476,'西ローマ帝国滅亡','古代の終わり','',['古代']),
+    ev(1492,'コロンブス到達','新大陸へ到達','',['大航海時代']),
+  ]};
+  appData = [tl, folder, wtl];
+  save();
+}
+function ev(year,title,sub,goro,tags,opt){
+  opt = opt || {};
+  return { id:uid(), year, endYear:(opt.endYear!=null?opt.endYear:null), month:opt.month||0, day:opt.day||0,
+           title, subtitle:sub, goro:goro||'', tags:tags||[], weak:false };
+}
+// 既存データ（旧フォーマット）に新フィールドを補完
+function migrate(){
+  appData.forEach(i=>{ if(i.type==='timeline' && Array.isArray(i.events)){
+    i.events.forEach(e=>{ if(e.endYear===undefined)e.endYear=null; if(e.month===undefined)e.month=0; if(e.day===undefined)e.day=0; });
+  }});
+}
+function cmpEvent(a,b){ return (a.year-b.year) || ((a.month||0)-(b.month||0)) || ((a.day||0)-(b.day||0)); }
+
+/* ============ NAV STATE ============ */
+let currentFolderId = null;   // null = root
+let currentTimelineId = null;
+let editMode = false;
+
+function children(folderId){
+  return appData.filter(i => i.parentId === folderId).sort((a,b)=>a.order-b.order);
+}
+function getItem(id){ return appData.find(i=>i.id===id); }
+
+/* ============ SCREEN MGMT ============ */
+const screens = ['list','detail','add','fc','quiz'];
+function showScreen(name){
+  screens.forEach(s=>{
+    const el = document.getElementById('screen-'+s);
+    el.classList.remove('active','behind','root');
+    if(s===name && s!=='list') el.classList.add('active');
+  });
+  if(name==='list') document.getElementById('screen-list').classList.add('root');
+}
+
+/* ============ LIST VIEW ============ */
+function renderList(){
+  const c = document.getElementById('list-content');
+  const back = document.getElementById('list-back');
+  const title = document.getElementById('list-title');
+  const q = (document.getElementById('list-search').value||'').trim().toLowerCase();
+  document.getElementById('list-clear').classList.toggle('show', !!q);
+  if(q){ renderListSearch(q); return; }
+  if(currentFolderId){
+    back.classList.remove('hidden');
+    title.textContent = getItem(currentFolderId)?.name || '年表';
+  }else{
+    back.classList.add('hidden');
+    title.textContent = '年表';
+  }
+  const items = children(currentFolderId);
+  if(items.length===0){
+    c.innerHTML = '<div class="empty"><div class="big">📚</div>右上の「＋」から<br>フォルダや年表を作成しましょう</div>';
+    return;
+  }
+  c.innerHTML = '';
+  items.forEach(item=>{
+    const row = document.createElement('div');
+    row.className = 'row' + (editMode?' edit-mode':'');
+    row.dataset.id = item.id;
+    const light = LIGHT.includes(item.color.toLowerCase());
+    const emoji = item.type==='folder' ? '📁' : '📜';
+    const count = item.type==='timeline' ? (item.events?.length||0)+' 件の出来事' : children(item.id).length+' 件';
+    row.innerHTML = `
+      ${editMode?`<button class="del-btn" onclick="deleteItem('${item.id}',event)">−</button>`:''}
+      <div class="icon" style="background:${item.color}">${emoji}</div>
+      <div class="meta">
+        <div class="name">${esc(item.name)}</div>
+        <div class="desc">${item.type==='folder'?'フォルダ':'年表'} · ${count}</div>
+      </div>
+      ${editMode
+        ? `<span class="handle" data-drag>≡</span>`
+        : `<span class="chev">›</span>`}`;
+    if(!editMode){
+      row.onclick = ()=> openItem(item);
+    }else{
+      // double-click name to rename
+      row.querySelector('.meta').onclick = ()=> renameItem(item.id);
+    }
+    c.appendChild(row);
+  });
+  if(editMode) enableSortable(c, currentFolderId);
+}
+
+function clearListSearch(){ document.getElementById('list-search').value=''; renderList(); }
+function escRe(s){ return s.replace(/[.*+?^${}()|[\]\\]/g,'\\$&'); }
+function hl(text,q){
+  const e = esc(text||'');
+  if(!q) return e;
+  try{ return e.replace(new RegExp(escRe(q),'gi'), m=>`<span class="res-hl">${m}</span>`); }catch(_){ return e; }
+}
+function eventSearchString(e){
+  return [e.title, e.subtitle, e.goro, (e.tags||[]).join(' '),
+          String(e.year), String(Math.abs(e.year)), fmtEvent(e),
+          (e.endYear!=null?String(e.endYear)+' '+String(Math.abs(e.endYear)):''),
+          (e.month?e.month+'月':''), (e.day?e.day+'日':''),
+          (e.year<0?'紀元前 bc':'紀元後 ad')].join(' ').toLowerCase();
+}
+function renderListSearch(q){
+  document.getElementById('list-back').classList.add('hidden');
+  document.getElementById('list-title').textContent = '検索結果';
+  const folders = appData.filter(i=>i.type==='folder' && i.name.toLowerCase().includes(q));
+  const timelines = appData.filter(i=>i.type==='timeline' && i.name.toLowerCase().includes(q));
+  const evHits = [];
+  appData.filter(i=>i.type==='timeline').forEach(tl=>{
+    (tl.events||[]).forEach(e=>{ if(eventSearchString(e).includes(q)) evHits.push({tl,e}); });
+  });
+  const c = document.getElementById('list-content');
+  if(!folders.length && !timelines.length && !evHits.length){
+    c.innerHTML = '<div class="empty"><div class="big">🔍</div>該当する項目がありません</div>';
+    return;
+  }
+  let html = '';
+  if(folders.length){
+    html += '<div class="res-group">フォルダ</div>';
+    folders.forEach(f=>{ html += rowHTML(f, '📁', 'フォルダ', q, `openFolderFromSearch('${f.id}')`); });
+  }
+  if(timelines.length){
+    html += '<div class="res-group">年表</div>';
+    timelines.forEach(t=>{ html += rowHTML(t, '📜', (t.events?.length||0)+' 件の出来事', q, `openTimeline('${t.id}')`); });
+  }
+  if(evHits.length){
+    html += '<div class="res-group">出来事</div>';
+    evHits.forEach(({tl,e})=>{
+      html += `<div class="row" onclick="jumpToEvent('${tl.id}','${e.id}')">
+        <div class="icon" style="background:${tl.color}">🕰️</div>
+        <div class="meta">
+          <div class="name">${hl(e.title,q)} <span style="color:var(--blue);font-size:13px">${hl(fmtEvent(e),q)}</span></div>
+          <div class="desc">${esc(tl.name)}${e.subtitle?' · '+hl(e.subtitle,q):''}${e.tags.length?' · '+e.tags.map(t=>hl(t,q)).join(', '):''}</div>
+        </div>
+        <span class="chev">›</span></div>`;
+    });
+  }
+  c.innerHTML = html;
+}
+function rowHTML(item, emoji, sub, q, onclick){
+  return `<div class="row" onclick="${onclick}">
+    <div class="icon" style="background:${item.color}">${emoji}</div>
+    <div class="meta"><div class="name">${hl(item.name,q)}</div><div class="desc">${sub}</div></div>
+    <span class="chev">›</span></div>`;
+}
+function openFolderFromSearch(id){
+  document.getElementById('list-search').value='';
+  currentFolderId = id; renderList();
+}
+function jumpToEvent(tlId, evId){
+  openTimeline(tlId);   // 検索クリア・画面遷移込み
+  // 画面遷移アニメ(0.28s)完了後にスクロール
+  setTimeout(()=>{
+    const el = document.querySelector('#detail-tl .ev[data-id="'+evId+'"]');
+    if(el){
+      el.scrollIntoView({behavior:'smooth', block:'center'});
+      el.classList.add('flash');
+      setTimeout(()=>el.classList.remove('flash'), 1700);
+    }
+  }, 360);
+}
+
+function openItem(item){
+  if(item.type==='folder'){
+    currentFolderId = item.id;
+    renderList();
+  }else{
+    openTimeline(item.id);
+  }
+}
+function goRoot(){
+  const f = getItem(currentFolderId);
+  currentFolderId = f ? f.parentId : null;
+  renderList();
+}
+function toggleEdit(){
+  editMode = !editMode;
+  document.getElementById('list-edit').textContent = editMode?'完了':'編集';
+  renderList();
+}
+function deleteItem(id, e){
+  e.stopPropagation();
+  const item = getItem(id);
+  let msg = `「${item.name}」を削除しますか？`;
+  if(item.type==='folder' && children(id).length) msg += '\n（中身もすべて削除されます）';
+  if(!confirm(msg)) return;
+  // recursive delete
+  const toDel = new Set([id]);
+  let changed = true;
+  while(changed){ changed=false;
+    appData.forEach(i=>{ if(i.parentId && toDel.has(i.parentId) && !toDel.has(i.id)){ toDel.add(i.id); changed=true; } });
+  }
+  appData = appData.filter(i=>!toDel.has(i.id));
+  save(); renderList();
+}
+function renameItem(id){
+  const item = getItem(id);
+  const n = prompt('名前を編集', item.name);
+  if(n && n.trim()){ item.name = n.trim(); save(); renderList(); }
+}
+
+/* ============ CREATE MODAL ============ */
+let createType = 'timeline';
+let createColor = '#2f5d8a';
+function buildPalette(){
+  const p = document.getElementById('palette');
+  p.innerHTML = '';
+  PALETTE.forEach(col=>{
+    const s = document.createElement('div');
+    s.className = 'swatch' + (LIGHT.includes(col)?' light':'') + (col===createColor?' sel':'');
+    s.style.background = col;
+    s.onclick = ()=>{ createColor = col; buildPalette(); };
+    p.appendChild(s);
+  });
+}
+function setCreateType(t){
+  createType = t;
+  document.querySelectorAll('#create-type-seg button').forEach(b=>b.classList.toggle('on', b.dataset.type===t));
+  createColor = t==='folder' ? '#ffffff' : '#2f5d8a';
+  buildPalette();
+}
+function openCreateModal(){
+  setCreateType('timeline');
+  document.getElementById('create-name').value='';
+  document.getElementById('create-modal').classList.add('show');
+}
+function closeCreateModal(){ document.getElementById('create-modal').classList.remove('show'); }
+function confirmCreate(){
+  const name = document.getElementById('create-name').value.trim();
+  if(!name){ alert('名称を入力してください'); return; }
+  const sibs = children(currentFolderId);
+  const item = { id:uid(), type:createType, name, color:createColor, parentId:currentFolderId,
+                 order: sibs.length, events: createType==='timeline'?[]:null };
+  appData.push(item);
+  save(); closeCreateModal(); renderList();
+}
+
+/* ============ TIMELINE DETAIL ============ */
+function openTimeline(id){
+  const tl = getItem(id);
+  if(!tl) return;
+  currentTimelineId = id;
+  currentFolderId = tl.parentId;                 // 戻ると正しいフォルダに戻る
+  document.getElementById('list-search').value='';
+  document.getElementById('search-input').value='';
+  document.getElementById('detail-title').textContent = tl.name;
+  renderList();                                  // 一覧の検索モードを解除
+  renderTimeline();
+  showScreen('detail');
+}
+function sortEvents(tl){ tl.events.sort(cmpEvent); }
+function fmtYear(y){ return y<0 ? `紀元前 ${Math.abs(y)} 年` : `${y} 年`; }
+function fmtEvent(e){
+  let s = fmtYear(e.year);
+  if(e.month) s += ' '+e.month+'月'+(e.day? ' '+e.day+'日':'');
+  if(e.endYear!=null && e.endYear!==e.year) s += ' 〜 '+fmtYear(e.endYear);
+  return s;
+}
+// 右側に大きく表示する年号（数字を強調、紀元前は「前」、月日や期間は小さく下に）
+function yearNum(y){ return y<0 ? `<span class="bc">前</span>${Math.abs(y)}` : String(y); }
+function eventYearHTML(e){
+  let sub='';
+  if(e.month) sub += e.month+'月'+(e.day?e.day+'日':'');
+  if(e.endYear!=null && e.endYear!==e.year) sub += (sub?'　':'')+'〜'+(e.endYear<0?'前'+Math.abs(e.endYear):e.endYear);
+  return `<div class="ev-year">${yearNum(e.year)}</div>`+(sub?`<div class="ev-yearsub">${esc(sub)}</div>`:'');
+}
+
+function renderTimeline(){
+  const tl = getItem(currentTimelineId);
+  sortEvents(tl);
+  const q = document.getElementById('search-input').value.trim().toLowerCase();
+  document.getElementById('detail-clear').classList.toggle('show', !!q);
+  const list = tl.events.filter(e=> !q || eventSearchString(e).includes(q));
+  const cont = document.getElementById('detail-tl');
+  if(tl.events.length===0){ cont.innerHTML='<div class="empty"><div class="big">🕰️</div>「＋ 出来事追加」から<br>出来事を登録しましょう</div>'; return; }
+  if(list.length===0){ cont.innerHTML='<div class="empty">該当する出来事がありません</div>'; return; }
+  cont.innerHTML = list.map(e=>`
+    <div class="ev" data-id="${e.id}" onclick="editEvent('${e.id}')">
+      <div class="ev-main">
+        <div class="ti">${hl(e.title,q)}</div>
+        ${e.subtitle?`<div class="st">${hl(e.subtitle,q)}</div>`:''}
+        ${e.goro?`<div class="goro">💡 ${hl(e.goro,q)}</div>`:''}
+        ${e.tags.length?`<div class="tags">${e.tags.map(t=>`<span class="tag">${hl(t,q)}</span>`).join('')}</div>`:''}
+      </div>
+      <div class="ev-side">
+        ${eventYearHTML(e)}
+        <div class="evactions">
+          <button class="evcheck ${e.weak?'on':''}" title="苦手マーク" onclick="toggleDetailWeak('${e.id}');event.stopPropagation();">✓</button>
+          <button class="evbtn edit" onclick="editEvent('${e.id}');event.stopPropagation();">編集</button>
+          <button class="evbtn" onclick="deleteEvent('${e.id}');event.stopPropagation();">✕</button>
+        </div>
+      </div>
+    </div>`).join('');
+}
+function clearDetailSearch(){ document.getElementById('search-input').value=''; renderTimeline(); }
+function deleteEvent(id){
+  const tl = getItem(currentTimelineId);
+  if(!confirm('この出来事を削除しますか？')) return;
+  tl.events = tl.events.filter(e=>e.id!==id);
+  save(); renderTimeline();
+}
+function toggleDetailWeak(id){
+  const tl = getItem(currentTimelineId);
+  const e = tl.events.find(x=>x.id===id);
+  if(!e) return;
+  e.weak = !e.weak; save(); renderTimeline();
+}
+
+/* ============ ADD / EDIT EVENT + NUMPAD ============ */
+let editingEventId = null;
+let numTarget = 'start';
+const fy = { start:{digits:'0',era:'ad'}, end:{digits:'0',era:'ad'} };
+function initMonthDay(){
+  const m=document.getElementById('ev-month'), d=document.getElementById('ev-day');
+  if(m.options.length) return;
+  m.innerHTML = '<option value="0">月（任意）</option>' + Array.from({length:12},(_,i)=>`<option value="${i+1}">${i+1}月</option>`).join('');
+  d.innerHTML = '<option value="0">日（任意）</option>' + Array.from({length:31},(_,i)=>`<option value="${i+1}">${i+1}日</option>`).join('');
+}
+function resetAddForm(){
+  fy.start={digits:'0',era:'ad'}; fy.end={digits:'0',era:'ad'};
+  document.getElementById('end-enabled').checked=false;
+  document.getElementById('end-wrap').classList.add('hidden');
+  setEra('start','ad'); setEra('end','ad');
+  document.getElementById('ev-month').value='0';
+  document.getElementById('ev-day').value='0';
+  ['ev-title','ev-sub','ev-goro','ev-tags'].forEach(i=>document.getElementById(i).value='');
+  updateYearDisplay('start'); updateYearDisplay('end');
+}
+function openAddEvent(){
+  editingEventId=null;
+  document.getElementById('add-title').textContent='出来事を追加';
+  initMonthDay(); resetAddForm();
+  showScreen('add');
+}
+function editEvent(id){
+  const tl=getItem(currentTimelineId); const e=tl.events.find(x=>x.id===id); if(!e) return;
+  editingEventId=id;
+  document.getElementById('add-title').textContent='出来事を編集';
+  initMonthDay(); resetAddForm();
+  fy.start.era=e.year<0?'bc':'ad'; fy.start.digits=String(Math.abs(e.year)); setEra('start',fy.start.era);
+  if(e.endYear!=null){
+    document.getElementById('end-enabled').checked=true;
+    document.getElementById('end-wrap').classList.remove('hidden');
+    fy.end.era=e.endYear<0?'bc':'ad'; fy.end.digits=String(Math.abs(e.endYear)); setEra('end',fy.end.era);
+  }
+  document.getElementById('ev-month').value=String(e.month||0);
+  document.getElementById('ev-day').value=String(e.day||0);
+  document.getElementById('ev-title').value=e.title;
+  document.getElementById('ev-sub').value=e.subtitle;
+  document.getElementById('ev-goro').value=e.goro;
+  document.getElementById('ev-tags').value=(e.tags||[]).join(', ');
+  updateYearDisplay('start'); updateYearDisplay('end');
+  showScreen('add');
+}
+function toggleEndYear(){
+  document.getElementById('end-wrap').classList.toggle('hidden', !document.getElementById('end-enabled').checked);
+}
+function closeAddEvent(){ closeNumpad(); showScreen('detail'); }
+function setEra(which,era){
+  fy[which].era=era;
+  document.querySelectorAll('#era-seg-'+which+' button').forEach(b=>b.classList.toggle('on',b.dataset.era===era));
+  updateYearDisplay(which);
+}
+function openNumpad(target){ numTarget=target; document.getElementById('numpad').classList.add('show'); }
+function closeNumpad(){ document.getElementById('numpad').classList.remove('show'); }
+function numKey(k){
+  const t=fy[numTarget];
+  if(k==='clear'){ t.digits='0'; }
+  else if(k==='back'){ t.digits = t.digits.length>1 ? t.digits.slice(0,-1) : '0'; }
+  else { t.digits = (t.digits==='0') ? k : (t.digits + k).slice(0,7); }
+  updateYearDisplay(numTarget);
+}
+function updateYearDisplay(which){
+  const t=fy[which]; const n=parseInt(t.digits,10)||0;
+  const el=document.getElementById('year-'+which);
+  if(el) el.textContent=(t.era==='bc'?'紀元前 ':'')+n+' 年';
+}
+function saveEvent(){
+  const title=document.getElementById('ev-title').value.trim();
+  if(!title){ alert('見出しを入力してください'); return; }
+  const sN=parseInt(fy.start.digits,10)||0;
+  const year=fy.start.era==='bc'?-sN:sN;
+  let endYear=null;
+  if(document.getElementById('end-enabled').checked){
+    const eN=parseInt(fy.end.digits,10)||0;
+    endYear=fy.end.era==='bc'?-eN:eN;
+  }
+  const month=parseInt(document.getElementById('ev-month').value,10)||0;
+  const day=parseInt(document.getElementById('ev-day').value,10)||0;
+  const tags=document.getElementById('ev-tags').value.split(',').map(t=>t.trim()).filter(Boolean);
+  const sub=document.getElementById('ev-sub').value.trim();
+  const goro=document.getElementById('ev-goro').value.trim();
+  const tl=getItem(currentTimelineId);
+  if(editingEventId){
+    const e=tl.events.find(x=>x.id===editingEventId);
+    Object.assign(e,{year,endYear,month,day,title,subtitle:sub,goro,tags});
+    editingEventId=null;
+  }else{
+    tl.events.push(ev(year,title,sub,goro,tags,{endYear,month,day}));
+  }
+  sortEvents(tl); save(); closeNumpad(); renderTimeline(); showScreen('detail');
+}
+
+/* ============ FLASHCARDS ============ */
+let fcCards = [], fcIndex = 0, fcRevealed=false;
+function openFlashcards(){
+  document.getElementById('fc-weak-only').checked=false;
+  startFlashcards();
+  showScreen('fc');
+}
+function startFlashcards(){
+  const tl = getItem(currentTimelineId);
+  const weakOnly = document.getElementById('fc-weak-only').checked;
+  fcCards = tl.events.filter(e=> weakOnly ? e.weak : true);
+  fcIndex=0; fcRevealed=false;
+  renderFlashcard();
+}
+function renderFlashcard(){
+  const wrap = document.getElementById('fc-wrap');
+  if(fcCards.length===0){ wrap.innerHTML='<div class="empty">該当するカードがありません</div>'; return; }
+  if(fcIndex>=fcCards.length) fcIndex=fcCards.length-1;
+  const e = fcCards[fcIndex];
+  wrap.innerHTML = `
+    <div class="flashcard ${fcRevealed?'flipped':''}" id="flashcard" onclick="flipCard()">
+      <button class="fc-mark ${e.weak?'on':''}" onclick="toggleWeak('${e.id}',event)">✓</button>
+      <div class="fc-inner">
+        <div class="fc-face fc-front">
+          <div class="face">${esc(e.title)}</div>
+          <div class="hint">タップで年号を表示</div>
+        </div>
+        <div class="fc-face fc-back">
+          <div>${fcYearHTML(e)}</div>
+          <div class="hint">タップで戻る</div>
+        </div>
+      </div>
+    </div>
+    <div class="fc-nav">
+      <button onclick="fcMove(-1)">‹</button>
+      <span class="fc-count">${fcIndex+1} / ${fcCards.length}</span>
+      <button onclick="fcMove(1)">›</button>
+    </div>`;
+}
+function fcYearHTML(e){
+  let sub='';
+  if(e.month) sub += e.month+'月'+(e.day?e.day+'日':'');
+  if(e.endYear!=null && e.endYear!==e.year) sub += (sub?'　':'')+'〜'+(e.endYear<0?'前'+Math.abs(e.endYear):e.endYear);
+  return `<div class="yr-face">${yearNum(e.year)}</div>`+(sub?`<div style="margin-top:10px;color:var(--sub);font-size:15px">${esc(sub)}</div>`:'');
+}
+function flipCard(){ fcRevealed=!fcRevealed; const el=document.getElementById('flashcard'); if(el) el.classList.toggle('flipped',fcRevealed); }
+function fcMove(d){ fcIndex=(fcIndex+d+fcCards.length)%fcCards.length; fcRevealed=false; renderFlashcard(); }
+function toggleWeak(id,e){
+  e.stopPropagation();
+  const tl=getItem(currentTimelineId);
+  const event=tl.events.find(x=>x.id===id);
+  event.weak=!event.weak; save();
+  // if weak-only filter on and unmarked, refresh list
+  if(document.getElementById('fc-weak-only').checked && !event.weak){ startFlashcards(); }
+  else renderFlashcard();
+}
+
+/* ============ QUIZ ============ */
+let quizCount = 4, quizItems = [];
+function checkedValues(containerId){
+  return [...document.querySelectorAll(`#${containerId} input:checked`)].map(i=>i.value);
+}
+function openQuizSetup(){
+  quizCount=4; document.getElementById('quiz-count').textContent='4';
+  document.getElementById('quiz-weak-only').checked=false;
+  const timelines = appData.filter(i=>i.type==='timeline');
+  document.getElementById('quiz-timeline').innerHTML = timelines.map(t=>
+    `<label><input type="checkbox" value="${t.id}" ${t.id===currentTimelineId?'checked':''} onchange="refreshQuizTags()">${esc(t.name)}</label>`).join('')
+    || '<div class="none">年表がありません</div>';
+  refreshQuizTags();
+  document.getElementById('quiz-modal').classList.add('show');
+}
+function quizPool(){
+  const ids = checkedValues('quiz-timeline');
+  let pool = [];
+  ids.forEach(id=>{ const tl=getItem(id); if(tl&&tl.events) pool=pool.concat(tl.events); });
+  if(document.getElementById('quiz-weak-only').checked) pool = pool.filter(e=>e.weak);
+  return pool;
+}
+function refreshQuizTags(){
+  const tags = [...new Set(quizPool().flatMap(e=>e.tags))];
+  const box = document.getElementById('quiz-tag');
+  box.innerHTML = tags.length
+    ? tags.map(t=>`<label><input type="checkbox" value="${esc(t)}">${esc(t)}</label>`).join('')
+    : '<div class="none">タグがありません（すべて出題）</div>';
+}
+function stepQuiz(d){ quizCount=Math.max(2,Math.min(20,quizCount+d)); document.getElementById('quiz-count').textContent=quizCount; }
+
+let lastQuizConfig = null;
+function startQuiz(){
+  const tlIds = checkedValues('quiz-timeline');
+  if(tlIds.length===0){ alert('年表を1つ以上選択してください'); return; }
+  const cfg = { tlIds, tags: checkedValues('quiz-tag'),
+                weakOnly: document.getElementById('quiz-weak-only').checked, count: quizCount };
+  if(!buildQuiz(cfg)) return;
+  lastQuizConfig = cfg;
+  closeModal('quiz-modal');
+  renderQuiz();
+  showScreen('quiz');
+}
+function buildQuiz(cfg){
+  let pool = [];
+  cfg.tlIds.forEach(id=>{ const tl=getItem(id); if(tl&&tl.events) pool=pool.concat(tl.events.filter(e=>!e.exclude&&!((tl.settings?.excludeTags||[]).some(x=>(e.tags||[]).includes(x))))); });
+  if(cfg.weakOnly) pool = pool.filter(e=>e.weak);
+  pool = pool.filter(e=> cfg.tags.length===0 || e.tags.some(t=>cfg.tags.includes(t)));
+  if(pool.length<2){ alert('条件に合う出来事が足りません（2件以上必要）'); return false; }
+  const n = Math.min(cfg.count, pool.length);
+  pool = [...pool].sort(()=>Math.random()-0.5).slice(0,n);
+  quizItems = [...pool].sort(()=>Math.random()-0.5); // 並び替える初期順（シャッフル）
+  return true;
+}
+function nextQuiz(){
+  if(!lastQuizConfig){ openQuizSetup(); return; }
+  if(buildQuiz(lastQuizConfig)) renderQuiz();
+}
+function renderQuiz(){
+  const c = document.getElementById('quiz-content');
+  c.innerHTML = `<div class="quiz-q">古いものから年代順に正しく配列せよ。</div>
+    <div id="quiz-list"></div>
+    <button class="fullbtn" id="quiz-answer-btn" onclick="checkQuiz()">解答する</button>
+    <button class="fullbtn" id="quiz-next-btn" style="display:none" onclick="nextQuiz()">次の問題 ›</button>
+    <button class="fullbtn sec" onclick="openQuizSetup()">設定を変更</button>`;
+  const list = document.getElementById('quiz-list');
+  quizItems.forEach(e=>{
+    const d = document.createElement('div');
+    d.className='qitem'; d.dataset.id=e.id;
+    d.innerHTML = `<span class="qhandle" data-drag>≡</span>
+      <span class="qti">${esc(e.title)}</span>
+      <span class="qans">${fmtEvent(e)}</span>
+      <button class="qcheck ${e.weak?'on':''}" title="苦手マーク" onclick="toggleQuizWeak('${e.id}',this)">✓</button>`;
+    list.appendChild(d);
+  });
+  enableSortable(list, null, true);
+}
+function toggleQuizWeak(id, btn){
+  const e = quizItems.find(x=>x.id===id);
+  if(!e) return;
+  e.weak = !e.weak;            // same object reference as in appData
+  btn.classList.toggle('on', e.weak);
+  save();
+}
+function checkQuiz(){
+  const list = document.getElementById('quiz-list');
+  const rows = [...list.children];
+  const orderIds = rows.map(r=>r.dataset.id);
+  const correctOrder = [...quizItems].sort(cmpEvent).map(e=>e.id);
+  let allCorrect = true;
+  rows.forEach((r,i)=>{
+    r.classList.add('revealed');
+    const ok = orderIds[i]===correctOrder[i];
+    r.classList.add(ok?'correct':'wrong');
+    if(!ok) allCorrect=false;
+  });
+  showMark(allCorrect);
+  document.getElementById('quiz-answer-btn').style.display='none';
+  document.getElementById('quiz-next-btn').style.display='block';
+}
+function showMark(correct){
+  const o = document.getElementById('overlay-mark');
+  o.className = 'overlay-mark ' + (correct?'o':'x');
+  o.querySelector('span').textContent = correct?'○':'✕';
+  o.querySelector('span').style.animation='none';
+  void o.offsetWidth;
+  o.querySelector('span').style.animation='';
+  o.classList.remove('hidden');
+  setTimeout(()=>o.classList.add('hidden'), 1300);
+}
+
+/* ============ POINTER-BASED SORTABLE (touch + mouse) ============ */
+function enableSortable(container, folderId, isQuiz){
+  let dragEl=null, placeholder=null, startY=0, offset=0;
+  container.querySelectorAll('[data-drag]').forEach(handle=>{
+    handle.onpointerdown = (ev)=>{
+      ev.preventDefault();
+      dragEl = handle.closest(isQuiz?'.qitem':'.row');
+      const rect = dragEl.getBoundingClientRect();
+      offset = ev.clientY - rect.top;
+      dragEl.classList.add('dragging');
+      dragEl.style.position='relative'; dragEl.style.zIndex=10;
+      document.addEventListener('pointermove', move);
+      document.addEventListener('pointerup', up);
+    };
+  });
+  function move(ev){
+    if(!dragEl) return;
+    const items = [...container.children].filter(c=>c!==dragEl);
+    const y = ev.clientY;
+    let placed=false;
+    for(const it of items){
+      const r = it.getBoundingClientRect();
+      if(y < r.top + r.height/2){ container.insertBefore(dragEl, it); placed=true; break; }
+    }
+    if(!placed) container.appendChild(dragEl);
+  }
+  function up(){
+    document.removeEventListener('pointermove', move);
+    document.removeEventListener('pointerup', up);
+    if(!dragEl) return;
+    dragEl.classList.remove('dragging'); dragEl.style.zIndex='';
+    dragEl=null;
+    if(!isQuiz){
+      // persist new order
+      [...container.children].forEach((row,i)=>{
+        const item = getItem(row.dataset.id); if(item) item.order=i;
+      });
+      save();
+    }else{
+      // update quizItems order
+      const ids=[...container.children].map(c=>c.dataset.id);
+      quizItems.sort((a,b)=>ids.indexOf(a.id)-ids.indexOf(b.id));
+    }
+  }
+}
+
+/* ============ IMPORT / EXPORT ============ */
+function download(filename, content, mime){
+  const blob = new Blob([content], {type:mime||'application/octet-stream'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href=url; a.download=filename; document.body.appendChild(a); a.click();
+  setTimeout(()=>{ URL.revokeObjectURL(url); a.remove(); }, 120);
+}
+function pad(n){ return String(n).padStart(2,'0'); }
+function safeName(n){ return (n||'timeline').replace(/[\\/:*?"<>|]/g,'_'); }
+function csvCell(v){ v=String(v==null?'':v); return /[",\r\n]/.test(v)? '"'+v.replace(/"/g,'""')+'"' : v; }
+
+/* --- timeline menu --- */
+function openTimelineMenu(){
+  document.getElementById('tl-menu-title').textContent = getItem(currentTimelineId).name;
+  document.getElementById('tl-menu-modal').classList.add('show');
+}
+function openBulk(){ closeModal('tl-menu-modal'); document.getElementById('bulk-modal').classList.add('show'); }
+
+/* --- CSV template & parsing --- */
+function downloadTemplate(){
+  const rows = [
+    ['年号','終了年号','月','日','出来事','説明','ゴロ合わせ','タグ(;区切り)'],
+    ['645','','3','','大化の改新','蘇我氏を倒す','むしごろし','飛鳥時代;政治改革'],
+    ['-44','','','','カエサル暗殺','共和政ローマの動乱','','古代ローマ'],
+    ['1592','1598','','','文禄・慶長の役','豊臣秀吉の朝鮮出兵','','安土桃山時代']
+  ];
+  const csv = rows.map(r=>r.map(csvCell).join(',')).join('\r\n');
+  download('chronology_template.csv', '﻿'+csv, 'text/csv;charset=utf-8');
+}
+function parseYear(s){
+  if(s==null) return null; s=String(s).trim(); if(s==='') return null;
+  let m=s.match(/(?:紀元前|BC|B\.C\.)\s*(\d+)/i);
+  if(m) return -parseInt(m[1],10);
+  m=s.match(/-?\d+/);
+  return m? parseInt(m[0],10) : null;
+}
+function parseCSV(text){
+  text=text.replace(/^﻿/,'');
+  const rows=[]; let row=[], cur='', q=false;
+  for(let i=0;i<text.length;i++){
+    const c=text[i];
+    if(q){ if(c==='"'){ if(text[i+1]==='"'){cur+='"';i++;} else q=false; } else cur+=c; }
+    else{
+      if(c==='"') q=true;
+      else if(c===','){ row.push(cur); cur=''; }
+      else if(c==='\n'){ row.push(cur); rows.push(row); row=[]; cur=''; }
+      else if(c==='\r'){}
+      else cur+=c;
+    }
+  }
+  if(cur!==''||row.length){ row.push(cur); rows.push(row); }
+  return rows.filter(r=>r.some(c=>String(c).trim()!==''));
+}
+function rowsToEvents(rows){
+  if(!rows.length) return {events:[],skipped:0};
+  const header = rows[0].map(h=>String(h).trim());
+  const find = names => header.findIndex(h=>{ const hh=h.replace(/[(（].*$/,'').trim(); return names.includes(hh); });
+  let ci = { year:find(['年号','開始年号','年']), end:find(['終了年号','終了年','終了']),
+             month:find(['月']), day:find(['日']), title:find(['出来事','見出し','タイトル','イベント']),
+             sub:find(['説明','サブタイトル','詳細']), goro:find(['ゴロ合わせ','ゴロ','語呂','語呂合わせ']),
+             tags:find(['タグ']) };
+  let start=1;
+  if(ci.year<0 || ci.title<0){               // ヘッダー無し → 位置で解釈
+    ci={ year:0,end:1,month:2,day:3,title:4,sub:5,goro:6,tags:7 };
+    start = (parseYear(header[0])===null) ? 1 : 0;
+  }
+  const get=(cells,k)=> (ci[k]>=0 && ci[k]<cells.length)? String(cells[ci[k]]).trim() : '';
+  const events=[]; let skipped=0;
+  for(let r=start;r<rows.length;r++){
+    const cells=rows[r];
+    const y=parseYear(get(cells,'year')); const title=get(cells,'title');
+    if(y===null || !title){ skipped++; continue; }
+    const endRaw=get(cells,'end'); const endY=endRaw?parseYear(endRaw):null;
+    const month=parseInt(get(cells,'month'),10)||0;
+    const day=parseInt(get(cells,'day'),10)||0;
+    const tags=get(cells,'tags').split(/[;；,、\/|]/).map(t=>t.trim()).filter(Boolean);
+    events.push(ev(y,title,get(cells,'sub'),get(cells,'goro'),tags,{endYear:(endY!=null?endY:null),month,day}));
+  }
+  return {events,skipped};
+}
+function onBulkFile(input){
+  const file=input.files[0]; if(!file){ return; }
+  const name=file.name.toLowerCase();
+  if(name.endsWith('.xlsx')||name.endsWith('.xls')){
+    loadSheetJS(()=>{
+      const reader=new FileReader();
+      reader.onload=e=>{ try{
+        const wb=XLSX.read(e.target.result,{type:'array'});
+        const ws=wb.Sheets[wb.SheetNames[0]];
+        const rows=XLSX.utils.sheet_to_json(ws,{header:1,raw:false,defval:''});
+        finishBulk(rows.map(r=>r.map(c=>c==null?'':String(c))));
+      }catch(err){ alert('Excelの読み込みに失敗しました: '+err.message); } };
+      reader.readAsArrayBuffer(file);
+    }, ()=>alert('Excelの読み込みにはインターネット接続が必要です。CSV形式でお試しください。'));
+  }else{
+    const reader=new FileReader();
+    reader.onload=e=>finishBulk(parseCSV(e.target.result));
+    reader.readAsText(file,'UTF-8');
+  }
+  input.value='';
+}
+function finishBulk(rows){
+  const {events,skipped}=rowsToEvents(rows);
+  if(!events.length){ alert('インポートできる出来事が見つかりませんでした。\n「年号」と「出来事」は必須です。'); return; }
+  const tl=getItem(currentTimelineId);
+  tl.events=tl.events.concat(events);
+  sortEvents(tl); save(); renderTimeline();
+  closeModal('bulk-modal');
+  alert(events.length+'件の出来事がインポートされました'+(skipped?`\n（${skipped}件は年号または出来事が未入力のためスキップしました）`:''));
+}
+function loadSheetJS(ok,fail){
+  if(window.XLSX){ ok(); return; }
+  const s=document.createElement('script');
+  s.src='https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js';
+  s.onload=ok; s.onerror=fail; document.head.appendChild(s);
+}
+
+/* --- per-timeline export / import --- */
+function stripEvent(e){ return {...e}; }
+function exportTimeline(){
+  const tl=getItem(currentTimelineId);
+  const timeline={...tl,events:tl.events.map(stripEvent)};
+  delete timeline.id; delete timeline.parentId; delete timeline.order;
+  const data={ app:'chronology', kind:'timeline', version:2, timeline };
+  download(safeName(tl.name)+'.json', JSON.stringify(data,null,2),'application/json');
+  closeModal('tl-menu-modal');
+}
+function normEvent(x){
+  return { ...x, id:x.id||uid(), year:parseInt(x.year,10)||0, endYear:(x.endYear!=null&&x.endYear!==''?parseInt(x.endYear,10):null),
+    month:parseInt(x.month,10)||0, day:parseInt(x.day,10)||0, title:String(x.title||''),
+    subtitle:String(x.subtitle||''), goro:String(x.goro||''), tags:Array.isArray(x.tags)?[...x.tags]:[],
+    groups:Array.isArray(x.groups)?[...x.groups]:[], relatedGroups:Array.isArray(x.relatedGroups)?[...x.relatedGroups]:[],
+    compareMode:x.compareMode==='all'?'all':'primary', color:x.color||null,
+    exclude:!!(x.exclude||x.quizExclude), weak:!!x.weak };
+}
+function normTimeline(t,parentId,order){
+  const item={ ...t, id:uid(), type:'timeline', name:(t.name||'インポートした年表'), color:t.color||'#2f5d8a',
+    parentId, order, groups:Array.isArray(t.groups)?JSON.parse(JSON.stringify(t.groups)):[],
+    settings:(t.settings&&typeof t.settings==='object')?JSON.parse(JSON.stringify(t.settings)):{},
+    compareState:(t.compareState&&typeof t.compareState==='object')?JSON.parse(JSON.stringify(t.compareState)):null,
+    viewMode:t.viewMode==='compare'?'compare':'timeline', events:t.events.map(normEvent) };
+  item.settings.excludeTags=Array.isArray(item.settings.excludeTags)?item.settings.excludeTags:[];
+  if(!item.compareState) item.compareState={selected:item.groups.map(g=>g.id).filter(Boolean),showOther:true};
+  return item;
+}
+function onTimelineImportFile(input){
+  const file=input.files[0]; if(!file){ return; }
+  const reader=new FileReader();
+  reader.onload=e=>{ try{
+    const parsed=JSON.parse(e.target.result);
+    const t=parsed.timeline || parsed;
+    if(!t || !Array.isArray(t.events)) throw new Error('年表データが見つかりません');
+    const sibs=children(currentFolderId);
+    const tl=normTimeline(t,currentFolderId,sibs.length);
+    appData.push(tl); save(); renderList(); closeModal('data-modal');
+    alert('年表「'+tl.name+'」を取り込みました（'+tl.events.length+'件の出来事）');
+  }catch(err){ alert('読み込みに失敗しました: '+err.message); } };
+  reader.readAsText(file,'UTF-8'); input.value='';
+}
+
+/* --- data management (full backup) --- */
+function openDataMgmt(){ dataTab('export'); document.getElementById('data-modal').classList.add('show'); }
+function dataTab(which){
+  document.getElementById('data-export').style.display = which==='export'?'block':'none';
+  document.getElementById('data-import').style.display = which==='import'?'block':'none';
+  const btns=document.querySelectorAll('#data-tab-seg button');
+  btns[0].classList.toggle('on',which==='export');
+  btns[1].classList.toggle('on',which==='import');
+}
+function exportAll(){
+  const data={ app:'chronology', kind:'backup', version:1, exportedAt:new Date().toISOString(), data:appData };
+  const d=new Date();
+  const stamp=d.getFullYear()+pad(d.getMonth()+1)+pad(d.getDate())+'_'+pad(d.getHours())+pad(d.getMinutes());
+  download('chronology_backup_'+stamp+'.json', JSON.stringify(data,null,2),'application/json');
+}
+function onBackupFile(input){
+  const file=input.files[0]; if(!file){ return; }
+  const reader=new FileReader();
+  reader.onload=e=>{ try{
+    const parsed=JSON.parse(e.target.result);
+    const arr = Array.isArray(parsed)? parsed : parsed.data;
+    if(!Array.isArray(arr)) throw new Error('バックアップ形式が不正です');
+    if(!confirm('現在のデータをすべて置き換えて復元します。よろしいですか？\n（先に「エクスポート」での保存を推奨）')){ input.value=''; return; }
+    appData=arr; migrate(); save();
+    currentFolderId=null; editMode=false;
+    document.getElementById('list-edit').textContent='編集';
+    document.getElementById('list-search').value='';
+    closeModal('data-modal'); renderList(); showScreen('list');
+    alert('データを復元しました（年表 '+appData.filter(i=>i.type==='timeline').length+' 件）');
+  }catch(err){ alert('読み込みに失敗しました: '+err.message); } };
+  reader.readAsText(file,'UTF-8'); input.value='';
+}
+
+/* ============ UTIL ============ */
+function esc(s){ return (s||'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+function closeModal(id){ document.getElementById(id).classList.remove('show'); }
+[...document.querySelectorAll('.modal-bg')].forEach(m=>{
+  m.addEventListener('click', e=>{ if(e.target===m) m.classList.remove('show'); });
+});
+
+/* ============ INIT ============ */
+load();
+buildPalette();
+renderList();
+showScreen('list');
+</script>
+<style>
+  #enh-list-tools{display:flex;gap:8px;padding:8px 16px;background:rgba(247,240,224,.94);border-bottom:1px solid var(--line);overflow:auto;position:sticky;top:0;z-index:4}
+  #enh-list-tools button{white-space:nowrap;border:1px solid var(--line);border-radius:9px;background:var(--card);padding:9px 11px;color:var(--ink);font-weight:700;cursor:pointer}
+  #enh-list-tools button.primary{background:var(--blue);color:#fff;border-color:var(--blue)}
+  .enh-row-select{width:20px;height:20px;accent-color:var(--blue);flex:0 0 20px}
+  .enh-color-picker{display:flex;gap:10px;align-items:center;flex-wrap:wrap}.enh-color-picker input[type=color]{width:58px;height:42px;border:1px solid var(--line);border-radius:10px;background:var(--card);padding:3px}.enh-color-picker input[type=text]{flex:1;min-width:130px}
+  .enh-group-row{display:grid;grid-template-columns:1fr 55px 36px 36px 36px;gap:7px;align-items:center;border-bottom:1px solid var(--line);padding:8px 0}.enh-group-row input{min-width:0;padding:8px;border:1px solid var(--line);border-radius:8px;background:var(--card)}.enh-group-row button{border:1px solid var(--line);border-radius:7px;background:var(--card);padding:7px;cursor:pointer}.enh-settings-list{max-height:45vh;overflow:auto;border:1px solid var(--line);border-radius:10px;background:var(--card)}.enh-settings-list label{display:flex;gap:9px;align-items:center;padding:10px;border-bottom:1px solid var(--line)}
+</style>
+<script>
+(function(){
+  const baseList=window.renderList;
+  function selectedIds(){return [...document.querySelectorAll('#list-content input[data-timeline-select]:checked')].map(x=>x.value)}
+  function injectListTools(){
+    const screen=document.getElementById('screen-list'),sub=screen?.querySelector('.subbar');if(!screen||!sub)return;
+    document.getElementById('enh-list-tools')?.remove();
+    let menu=document.getElementById('enh-list-menu');if(!menu){menu=document.createElement('button');menu.id='enh-list-menu';menu.className='hbtn';menu.title='年表メニュー';menu.textContent='⋯';menu.onclick=enhOpenListMenu;screen.querySelector('header')?.appendChild(menu)}
+    document.querySelectorAll('#list-content .row[data-id]').forEach(row=>{const item=getItem(row.dataset.id);if(item?.type!=='timeline'||row.querySelector('[data-timeline-select]'))return;const cb=document.createElement('input');cb.type='checkbox';cb.dataset.timelineSelect='1';cb.value=item.id;cb.className='enh-row-select';cb.title='この年表を選択';cb.onclick=e=>e.stopPropagation();row.insertBefore(cb,row.firstChild)});
+  }
+  window.renderList=function(){baseList();injectListTools()};
+  function chosenTimelines(){const ids=selectedIds();return ids.map(getItem).filter(x=>x?.type==='timeline')}
+  window.enhListDuplicate=function(){const ts=chosenTimelines();if(!ts.length){alert('複製する年表を選択してください');return}const made=[];ts.forEach(t=>{let base=t.name+'のコピー',name=base,n=2;while(appData.some(x=>x.type==='timeline'&&x.name===name))name=base+n++;const c=JSON.parse(JSON.stringify(t));c.id=uid();c.name=name;c.order=children(t.parentId).length;c.events=(t.events||[]).map(e=>({...e,id:uid()}));appData.push(c);made.push(name)});save();renderList();alert(made.length+'件の年表を複製しました\n'+made.join('\n'))}
+  function listRows(text){text=String(text||'').replace(/^\uFEFF/,'');const lines=text.split(/\r?\n/).filter(x=>x.trim());if(!lines.length)return[];const delim=(lines[0].includes('\t')?'\t':(lines[0].includes(';')?';':','));const split=s=>delim===','?s.split(/,(?=(?:[^\"]*\"[^\"]*\")*[^\"]*$)/).map(x=>x.replace(/^\"|\"$/g,'').replace(/\"\"/g,'\"').trim()):s.split(delim).map(x=>x.trim());const rows=lines.map(split),h=rows[0].map(x=>x.toLowerCase());const has=h.some(x=>/開始年|year|start/.test(x))&&h.some(x=>/出来事|title|event/.test(x));return (has?rows.slice(1):rows).map((r,i)=>{const get=(rx,idx)=>{let p=has?h.findIndex(x=>rx.test(x)):idx;return p>=0?r[p]||'':''};return{line:has?i+2:i+1,year:parseYear(get(/開始年|year|start/,0)),title:get(/出来事|title|event/,1),subtitle:get(/説明|description/,2),tags:get(/タグ|tags/,3).split(';').map(x=>x.trim()).filter(Boolean)}})}
+  window.enhListBulkOpen=function(){const ts=chosenTimelines();if(!ts.length){alert('一括追加先の年表を選択してください');return}let m=document.getElementById('enh-list-bulk-modal');if(!m){m=document.createElement('div');m.id='enh-list-bulk-modal';m.className='modal-bg';m.innerHTML='<div class="sheet"><h2>選択年表へ出来事を一括追加</h2><p class="sheet-note" id="enh-list-bulk-target"></p><textarea id="enh-list-bulk-text" style="width:100%;min-height:190px;padding:10px;border:1px solid var(--line);border-radius:9px" placeholder="開始年\t出来事\n-44\tカエサル暗殺"></textarea><button class="bigbtn primary" onclick="enhListBulkPreview()">プレビュー</button><div id="enh-list-bulk-preview"></div><div class="modal-actions"><button class="btn-cancel" onclick="closeModal(\'enh-list-bulk-modal\')">閉じる</button><button class="btn-ok" onclick="enhListBulkCommit()">追加する</button></div></div>';document.body.appendChild(m)}document.getElementById('enh-list-bulk-target').textContent='追加先：'+ts.map(x=>x.name).join('、');m.classList.add('show')}
+  window.enhListBulkPreview=function(){const rs=listRows(document.getElementById('enh-list-bulk-text').value),ok=rs.filter(x=>x.year!==null&&x.title.trim()).length,er=rs.length-ok;document.getElementById('enh-list-bulk-preview').innerHTML='<div class="enh-result">正常行: '+ok+'件　エラー行: '+er+'件<br>'+rs.map(x=>(x.year===null||!x.title.trim()?'<span class="preview-err">'+x.line+'行目：開始年または出来事が不正</span>':'<span class="preview-ok">'+x.line+'行目：'+esc(x.year+' '+x.title)+'</span>')).join('<br>')+'</div>'}
+  window.enhListBulkCommit=function(){const ts=chosenTimelines(),rs=listRows(document.getElementById('enh-list-bulk-text').value);let added=0,dup=0,errors=0;ts.forEach(t=>{const keys=new Set(t.events.map(e=>e.year+'\u0000'+e.title));rs.forEach(x=>{if(x.year===null||!x.title.trim()){errors++;return}const k=x.year+'\u0000'+x.title.trim();if(keys.has(k)){dup++;return}t.events.push(ev(x.year,x.title.trim(),x.subtitle,'',x.tags));keys.add(k);added++});sortEvents(t)});save();renderList();document.getElementById('enh-list-bulk-preview').innerHTML='<div class="enh-result">追加成功: '+added+'件\n重複: '+dup+'件\nエラー: '+errors+'件</div>'}
+  window.enhListMove=function(){const ts=chosenTimelines();if(!ts.length){alert('移動する年表を選択してください');return}if(!confirm('選択した年表をJSONファイルとして書き出し、現在の保存データから削除します。続行しますか？'))return;const ids=new Set(ts.map(x=>x.id));download('timeline_move_'+Date.now()+'.json',JSON.stringify({app:'chronology',kind:'timeline-move',version:2,timelines:ts},null,2),'application/json');appData=appData.filter(x=>!ids.has(x.id));save();renderList();alert('別ファイルへ移動しました。書き出したJSONを必要な場所でインポートしてください。')}
+  window.enhOpenListMenu=function(){let m=document.getElementById('enh-list-menu-modal');if(!m){m=document.createElement('div');m.id='enh-list-menu-modal';m.className='modal-bg';m.innerHTML='<div class="sheet"><h2>年表メニュー</h2><p class="sheet-note" id="enh-list-menu-note">年表を選択して操作してください。</p><button class="bigbtn" onclick="closeModal(\'enh-list-menu-modal\');enhListDuplicate()">年表を複製</button><button class="bigbtn" onclick="closeModal(\'enh-list-menu-modal\');enhListBulkOpen()">選択年表へ出来事を一括追加</button><button class="bigbtn" onclick="closeModal(\'enh-list-menu-modal\');enhListMove()">年表を別ファイルへ移動</button><div class="modal-actions"><button class="btn-cancel" onclick="closeModal(\'enh-list-menu-modal\')">閉じる</button></div></div>';document.body.appendChild(m)}const ts=chosenTimelines();document.getElementById('enh-list-menu-note').textContent=ts.length?('選択中：'+ts.map(x=>x.name).join('、')):'年表を選択して操作してください。';m.classList.add('show')}
+  window.onTimelineImportFile=function(input){const file=input.files[0];if(!file){return}const reader=new FileReader();reader.onload=e=>{try{const parsed=JSON.parse(e.target.result);if(parsed.kind==='timeline-move'&&Array.isArray(parsed.timelines)){const parent=currentFolderId,existing=children(parent).length;parsed.timelines.forEach((src,i)=>{const c=JSON.parse(JSON.stringify(src));c.id=uid();c.parentId=parent;c.order=existing+i;c.events=(c.events||[]).map(ev0=>({...ev0,id:uid()}));appData.push(c)});save();renderList();closeModal('data-modal');alert(parsed.timelines.length+'件の年表を別ファイルから移動しました');return}const t=parsed.timeline||parsed;if(!t||!Array.isArray(t.events))throw Error('年表データが見つかりません');const item=normTimeline(t,currentFolderId,children(currentFolderId).length);appData.push(item);save();renderList();closeModal('data-modal');alert('年表を読み込みました: '+item.name)}catch(err){alert('年表ファイルの読み込みに失敗しました: '+err.message)}};reader.readAsText(file,'UTF-8');input.value=''}
+  window.buildPalette=function(){const p=document.getElementById('palette');if(!p)return;p.innerHTML='<div class="enh-color-picker"><input id="enh-create-color" type="color" value="'+createColor+'"><input id="enh-create-hex" type="text" value="'+createColor+'" placeholder="#2f5d8a"><button class="bigbtn" style="margin:0;padding:9px" onclick="enhApplyCreateColor()">色を適用</button></div><div class="palette" id="enh-palette-swatches"></div>';const sw=document.getElementById('enh-palette-swatches');PALETTE.forEach(col=>{const s=document.createElement('button');s.type='button';s.className='swatch'+(col===createColor?' sel':'');s.style.background=col;s.title=col;s.setAttribute('aria-label',col);s.onclick=()=>{createColor=col;buildPalette()};sw.appendChild(s)});document.getElementById('enh-create-color').oninput=e=>{createColor=e.target.value;document.getElementById('enh-create-hex').value=createColor};document.getElementById('enh-create-hex').oninput=e=>{const v=e.target.value.trim();if(/^#[0-9a-f]{6}$/i.test(v)){createColor=v;document.getElementById('enh-create-color').value=v}}}
+  window.enhApplyCreateColor=function(){const v=document.getElementById('enh-create-hex').value.trim();if(!/^#[0-9a-f]{6}$/i.test(v)){alert('HEX形式で入力してください（例：#2f5d8a）');return}createColor=v;buildPalette()};
+  function groupModal(){const t=getItem(currentTimelineId);if(!t)return;let m=document.getElementById('enh-group-modal');if(!m){m=document.createElement('div');m.id='enh-group-modal';m.className='modal-bg';m.innerHTML='<div class="sheet"><h2>グループ管理</h2><div id="enh-group-list"></div><div class="enh-color-picker" style="margin-top:12px"><input id="enh-new-group-name" type="text" placeholder="新しいグループ名"><input id="enh-new-group-color" type="color" value="#2f5d8a"><button class="bigbtn" style="margin:0;padding:9px" onclick="enhGroupCreateUI()">作成</button></div><div class="modal-actions"><button class="btn-cancel" onclick="closeModal(\'enh-group-modal\')">閉じる</button></div></div>';document.body.appendChild(m)}const box=document.getElementById('enh-group-list');box.innerHTML=(t.groups||[]).map((g,i)=>`<div class="enh-group-row"><input id="enh-gname-${g.id}" value="${esc(g.name)}"><input id="enh-gcolor-${g.id}" type="color" value="${g.color||'#2f5d8a'}"><button onclick="enhGroupSaveUI('${g.id}')">保存</button><button onclick="enhGroupMoveUI('${g.id}',-1)">↑</button><button onclick="enhGroupMoveUI('${g.id}',1)">↓</button><button onclick="enhGroupDeleteUI('${g.id}')">×</button></div>`).join('')||'<div class="empty">グループがありません</div>';m.classList.add('show')}
+  window.enhGroups=groupModal;window.enhGroupCreateUI=function(){const t=getItem(currentTimelineId),n=document.getElementById('enh-new-group-name').value.trim();if(!n)return;if(t.groups.some(g=>g.name===n)){alert('同名グループが既にあります');return}t.groups.push({id:uid(),name:n,color:document.getElementById('enh-new-group-color').value,order:t.groups.length});save();groupModal()};window.enhGroupSaveUI=function(id){const t=getItem(currentTimelineId),g=t.groups.find(x=>x.id===id);if(!g)return;g.name=document.getElementById('enh-gname-'+id).value.trim()||g.name;g.color=document.getElementById('enh-gcolor-'+id).value;save();groupModal()};window.enhGroupMoveUI=function(id,d){const t=getItem(currentTimelineId),a=t.groups,i=a.findIndex(g=>g.id===id),j=i+d;if(i<0||j<0||j>=a.length)return;[a[i],a[j]]=[a[j],a[i]];a.forEach((g,k)=>g.order=k);save();groupModal()};window.enhGroupDeleteUI=function(id){const t=getItem(currentTimelineId),g=t.groups.find(x=>x.id===id);if(!g||!confirm('グループを削除しますか？出来事は削除されません。'))return;t.groups=t.groups.filter(x=>x.id!==id);t.events.forEach(e=>{e.groups=(e.groups||[]).filter(x=>x!==id);e.relatedGroups=(e.relatedGroups||[]).filter(x=>x!==id)});save();groupModal()}
+  window.enhCompareSettings=function(){const t=getItem(currentTimelineId);if(!t)return;let m=document.getElementById('enh-compare-settings-modal');if(!m){m=document.createElement('div');m.id='enh-compare-settings-modal';m.className='modal-bg';m.innerHTML='<div class="sheet"><h2>比較表示の設定</h2><p class="sheet-note">表示するグループと「その他」列を設定します。</p><div id="enh-compare-settings-list" class="enh-settings-list"></div><div class="modal-actions"><button class="btn-cancel" onclick="closeModal(\'enh-compare-settings-modal\')">閉じる</button><button class="btn-ok" onclick="enhCompareSettingsSave()">保存</button></div></div>';document.body.appendChild(m)}const s=t.compareState||{selected:(t.groups||[]).map(g=>g.id),showOther:true};document.getElementById('enh-compare-settings-list').innerHTML=(t.groups||[]).map(g=>`<label><input type="checkbox" data-compare-group="${g.id}" ${s.selected.includes(g.id)?'checked':''}> <span style="color:${g.color||'#2f5d8a'}">●</span> ${esc(g.name)}</label>`).join('')+'<label><input id="enh-settings-other" type="checkbox" '+(s.showOther?'checked':'')+'> その他列を表示</label>';m.classList.add('show')};window.enhCompareSettingsSave=function(){const t=getItem(currentTimelineId);t.compareState={selected:[...document.querySelectorAll('[data-compare-group]:checked')].map(x=>x.dataset.compareGroup),showOther:document.getElementById('enh-settings-other').checked};save();closeModal('enh-compare-settings-modal');if(t.viewMode==='compare')renderTimeline()}
+  window.__enhGroupModal=groupModal;window.__enhCompareSettingsUI=window.enhCompareSettings;injectListTools();buildPalette();
+})();
+</script>
+<script>
+  if(window.__enhGroupModal) window.enhGroups=window.__enhGroupModal;
+  if(window.__enhCompareSettingsUI) window.enhCompareSettings=window.__enhCompareSettingsUI;
+</script>
+</body>
+<style>
+  .enh-actions{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:10px 0}
+  .enh-actions button,.enh-toolbar button{padding:10px;border:1px solid var(--line);border-radius:10px;background:var(--card);color:var(--ink);cursor:pointer;font-weight:600}
+  .enh-toolbar{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px}.enh-toolbar input{flex:1;min-width:150px;padding:10px;border:1px solid var(--line);border-radius:10px;background:var(--card)}
+  .enh-list{max-height:45vh;overflow:auto;border:1px solid var(--line);border-radius:10px;background:var(--card)}
+  .enh-list label{display:flex;gap:8px;align-items:flex-start;padding:9px;border-bottom:1px solid var(--line);cursor:pointer}.enh-list small{display:block;color:var(--sub)}
+  .preview-ok{color:var(--green)}.preview-warn{color:#9a7018}.preview-err{color:var(--red)}.enh-result{padding:10px;border-radius:10px;background:#f7efd9;margin-top:10px;white-space:pre-wrap;font-size:13px}
+  .compare-wrap{overflow:auto;border:1px solid var(--line);border-radius:12px;background:rgba(255,253,246,.6);padding:8px}.compare-grid{display:grid;grid-auto-columns:minmax(220px,1fr);grid-auto-flow:column;min-width:max-content}.compare-col{border-right:1px solid var(--line);min-height:120px}.compare-head{position:sticky;top:0;background:var(--card);padding:8px;font-weight:700;border-bottom:1px solid var(--line)}.compare-year{padding:8px;border-bottom:1px dashed var(--line);min-height:46px}.compare-card{padding:7px;border-left:4px solid var(--blue);background:rgba(255,255,255,.65);border-radius:6px;margin:3px;font-size:13px;cursor:pointer}.related-mark{display:inline-flex;width:22px;height:22px;border-radius:50%;align-items:center;justify-content:center;background:#eee0b7;color:#795d1f;font-size:11px;cursor:pointer}
+  @media(max-width:600px){.enh-actions{grid-template-columns:1fr}.compare-col{min-width:190px}}
+</style>
+<script>
+/* Enhanced layer: additive, localStorage-compatible functionality. */
+(function(){
+  const oldMigrate=window.migrate;
+  function normColor(v){const s=String(v||'').trim();if(/^#[0-9a-f]{6}$/i.test(s))return s;return ({'赤':'#ff3b30','青':'#2f5d8a','緑':'#34c759','黄':'#ffcc00','紫':'#af52de','橙':'#ff9500','灰':'#8e8e93','白':'#ffffff'})[s]||null}
+  function ensureData(){
+    appData.forEach(t=>{if(t.type!=='timeline')return;t.groups=Array.isArray(t.groups)?t.groups:[];t.settings=t.settings||{};t.settings.excludeTags=Array.isArray(t.settings.excludeTags)?t.settings.excludeTags:[];t.groups.forEach((g,i)=>{g.id=g.id||uid();g.color=normColor(g.color)||'#2f5d8a';g.order=i});(t.events||[]).forEach(e=>{e.groups=Array.isArray(e.groups)?e.groups:[];e.relatedGroups=Array.isArray(e.relatedGroups)?e.relatedGroups:[];e.compareMode=e.compareMode==='all'?'all':'primary';e.color=normColor(e.color);e.exclude=!!(e.exclude||e.quizExclude);e.weak=!!e.weak;e.endYear=e.endYear===undefined?null:e.endYear});});
+    localStorage.setItem('chrono_enhanced_migrated','1');save();
+  }
+  function groupName(t,id){return (t.groups||[]).find(g=>g.id===id)?.name||''}
+  function splitCell(v){return String(v||'').split(';').map(x=>x.trim()).filter(Boolean)}
+  function parseY(v){let s=String(v??'').trim().replace(/\s+/g,'');if(s==='')return null;let m=s.match(/^(?:紀元前|前|BC|B\.C\.)(\d+)$/i);if(m)return -parseInt(m[1],10);m=s.match(/^(\d+)BC$/i);if(m)return -parseInt(m[1],10);return /^-?\d+$/.test(s)?parseInt(s,10):null}
+  function truth(v){return /^(yes|true|1|○|除外|はい)$/i.test(String(v||'').trim())}
+  function headers(row){const map={'開始年':'year','year':'year','start year':'year','startyear':'year','出来事':'title','title':'title','event':'title','説明':'subtitle','description':'subtitle','タグ':'tags','tags':'tags','主グループ':'primary','primary group':'primary','関連グループ':'related','related groups':'related','比較表示方法':'compareMode','終了年':'endYear','end year':'endYear','月':'month','month':'month','日':'day','day':'day','ゴロ':'goro','問題に出さない':'exclude','exclude':'exclude','quiz exclude':'exclude','色':'color','color':'color'};return row.map(x=>map[String(x).trim().toLowerCase()]||map[String(x).trim()]||'')}
+  function parseText(txt){txt=txt.replace(/^\uFEFF/,'');let lines=txt.split(/\r?\n/).filter(x=>x.trim());if(!lines.length)return [];let delim=(lines[0].match(/\t/g)||[]).length>0?'\t':((lines[0].match(/;/g)||[]).length>0?';':',');function row(line){if(delim==='\t'||delim===';')return line.split(delim).map(x=>x.trim());let a=[],c='',q=false;for(let i=0;i<line.length;i++){let ch=line[i];if(ch==='"'){if(q&&line[i+1]==='"'){c+='"';i++}else q=!q}else if(ch===','&&!q){a.push(c.trim());c=''}else c+=ch}a.push(c.trim());return a}let rs=lines.map(row), hm=headers(rs[0]), has=hm.includes('year')&&hm.includes('title');if(!has){hm=['year','title'];return rs.map((r,i)=>({row:i+1,cells:r,map:hm}))}return rs.slice(1).map((r,i)=>({row:i+2,cells:r,map:hm}))}
+  function parsedRows(txt){return parseText(txt).map(o=>{let get=k=>{let i=o.map.indexOf(k);return i>=0?o.cells[i]:''};let y=parseY(get('year')),title=String(get('title')).trim(),err=[];if(y===null)err.push('開始年が不正');if(!title)err.push('出来事が空');let e=ev(y||0,title,get('subtitle'),get('goro'),splitCell(get('tags')),{endYear:parseY(get('endYear')),month:parseInt(get('month'))||0,day:parseInt(get('day'))||0});e.exclude=truth(get('exclude'));e.color=normColor(get('color'));e.groups=[];e.relatedGroups=[];e._primary=String(get('primary')).trim();e._related=splitCell(get('related'));e.compareMode=/すべて|all/i.test(get('compareMode'))?'all':'primary';return {row:o.row,e,err}})}
+  function key(e){return String(e.year)+'\u0000'+e.title}
+  function inject(){
+    const menu=document.querySelector('#tl-menu-modal .sheet');if(menu&&!document.getElementById('enh-menu')){let d=document.createElement('div');d.id='enh-menu';d.className='enh-actions';d.innerHTML='<button onclick="enhRename()">年表名を変更</button><button onclick="enhDuplicate()">年表を複製</button><button onclick="enhCopyOpen()">他の年表から出来事をコピー</button><button onclick="enhBulkOpen()">テキスト一括追加</button><button onclick="enhGroups()">グループ管理</button><button onclick="enhExcludeTags()">出題除外設定</button><button onclick="enhCompare()">比較表示</button>';menu.insertBefore(d,menu.querySelector('.modal-actions'))}
+    const add=document.querySelector('#screen-add .content');if(add&&!document.getElementById('enh-event-fields')){let d=document.createElement('div');d.id='enh-event-fields';d.innerHTML='<div class="field"><label>主グループ</label><select id="enh-primary"><option value="">なし</option></select></div><div class="field"><label>関連グループ（セミコロン区切り）</label><input id="enh-related" type="text" placeholder="グループA;グループB"></div><div class="field"><label>比較表示方法</label><select id="enh-mode"><option value="primary">主グループだけに表示</option><option value="all">関係するすべての列に表示</option></select></div><div class="field"><label>個別色（HEXまたは色名）</label><input id="enh-color" type="text" placeholder="#ff3b30 または 赤"></div><label style="display:flex;gap:8px;margin-bottom:12px"><input id="enh-exclude" type="checkbox"> 問題に出さない</label>';add.appendChild(d)}
+  }
+  function fillFields(e){inject();let t=getItem(currentTimelineId),p=document.getElementById('enh-primary');p.innerHTML='<option value="">なし</option>'+(t.groups||[]).map(g=>`<option value="${g.id}">${esc(g.name)}</option>`).join('');p.value=e?e.groups?.[0]||'':'';document.getElementById('enh-related').value=(e?.relatedGroups||[]).map(id=>groupName(t,id)||id).join(';');document.getElementById('enh-mode').value=e?.compareMode||'primary';document.getElementById('enh-color').value=e?.color||'';document.getElementById('enh-exclude').checked=!!e?.exclude}
+  const oldOpen=window.openAddEvent,oldEdit=window.editEvent,oldSave=window.saveEvent;window.openAddEvent=function(){oldOpen();fillFields(null)};window.editEvent=function(id){oldEdit(id);let t=getItem(currentTimelineId),e=t.events.find(x=>x.id===id);fillFields(e)};window.saveEvent=function(){let t=getItem(currentTimelineId),before=new Set(t.events.map(x=>x.id)),editId=editingEventId;oldSave();let e=editId?t.events.find(x=>x.id===editId):t.events.find(x=>!before.has(x.id));if(!e)return;let p=document.getElementById('enh-primary')?.value, rel=splitCell(document.getElementById('enh-related')?.value).map(n=>(t.groups||[]).find(g=>g.name===n)?.id).filter(Boolean);e.groups=p?[p]:[];e.relatedGroups=rel;e.compareMode=document.getElementById('enh-mode')?.value||'primary';e.color=normColor(document.getElementById('enh-color')?.value);e.exclude=document.getElementById('enh-exclude')?.checked||false;save();renderTimeline()}
+  window.enhRename=function(){let t=getItem(currentTimelineId),n=prompt('新しい年表名',t.name);if(n&&n.trim()){t.name=n.trim();save();document.getElementById('detail-title').textContent=t.name;document.getElementById('tl-menu-title').textContent=t.name}}
+  window.enhDuplicate=function(){let t=getItem(currentTimelineId),base=t.name+'のコピー',n=base,i=2;while(appData.some(x=>x.type==='timeline'&&x.name===n))n=base+i++;let c=JSON.parse(JSON.stringify(t));c.id=uid();c.name=n;c.order=children(t.parentId).length;c.events=(t.events||[]).map(e=>({...e,id:uid()}));appData.push(c);save();alert('複製しました：'+n)}
+  window.enhGroups=function(){let t=getItem(currentTimelineId),msg=(t.groups||[]).map((g,i)=>`${i+1}. ${g.name} (${g.color})`).join('\n')||'（なし）';let action=prompt(msg+'\n\n作成: +名前\n編集: 番号=新名前[,色]\n並び替え: order=番号,番号\n削除: -番号', '');if(!action)return;if(action.startsWith('+')){let q=action.slice(1).split(',');t.groups.push({id:uid(),name:q[0].trim(),color:normColor(q[1])||'#2f5d8a',order:t.groups.length})}else if(/^\d+=/.test(action)){let [a,n]=action.split('=');let q=n.split(','),g=t.groups[+a-1];if(g){g.name=q[0].trim();if(q[1])g.color=normColor(q[1])||g.color}}else if(action.toLowerCase().startsWith('order=')){let ids=action.slice(6).split(',').map(x=>+x.trim()-1);t.groups=[...ids.map(i=>t.groups[i]).filter(Boolean),...t.groups.filter((g,i)=>!ids.includes(i))];t.groups.forEach((g,i)=>g.order=i)}else if(action.startsWith('-')){let g=t.groups.splice(+action.slice(1)-1,1)[0];if(g)t.events.forEach(e=>{e.groups=(e.groups||[]).filter(x=>x!==g.id);e.relatedGroups=(e.relatedGroups||[]).filter(x=>x!==g.id)})}save();alert('グループを更新しました')}
+  window.enhExcludeTags=function(){let t=getItem(currentTimelineId),n=prompt('初期状態で出題対象外にするタグ（セミコロン区切り）',t.settings.excludeTags.join(';'));if(n!==null){t.settings.excludeTags=splitCell(n);save();alert('保存しました')}}
+  window.enhBulkOpen=function(){closeModal('tl-menu-modal');let m=document.getElementById('enh-bulk-modal');if(!m){m=document.createElement('div');m.id='enh-bulk-modal';m.className='modal-bg show';m.innerHTML='<div class="sheet"><h2>テキスト一括追加</h2><p class="sheet-note">ヘッダーあり／なし2列に対応。区切りはタブ・CSV・セミコロンを自動判定します。</p><textarea id="enh-bulk-text" style="width:100%;min-height:180px;padding:10px;border:1px solid var(--line);border-radius:10px" placeholder="開始年\t出来事\n-44\tカエサル暗殺"></textarea><button class="bigbtn primary" onclick="enhPreview()">プレビュー</button><div id="enh-preview"></div><div class="modal-actions"><button class="btn-cancel" onclick="closeModal(\'enh-bulk-modal\')">閉じる</button><button class="btn-ok" onclick="enhCommitBulk()">追加する</button></div></div>';document.body.appendChild(m)}m.classList.add('show')}
+  window.enhPreview=function(){let rs=parsedRows(document.getElementById('enh-bulk-text').value),ok=rs.filter(x=>!x.err.length).length,er=rs.filter(x=>x.err.length).length;document.getElementById('enh-preview').innerHTML=`<div class="enh-result">正常行: <span class="preview-ok">${ok}</span>　エラー行: <span class="preview-err">${er}</span>　追加予定件数: ${ok}<br>${rs.map(x=>x.err.length?`<span class="preview-err">${x.row}行目: ${x.err.join('、')}</span>`:`<span class="preview-ok">${x.row}行目: ${esc(x.e.year+' '+x.e.title)}</span>`).join('<br>')}</div>`}
+  window.enhCommitBulk=function(){let t=getItem(currentTimelineId),rs=parsedRows(document.getElementById('enh-bulk-text').value),keys=new Set(t.events.map(key)),ok=0,dup=0,errs=[];rs.forEach(x=>{if(x.err.length){errs.push(x.row+'行目: '+x.err.join('、'));return}if(keys.has(key(x.e))){dup++;return}[x.e._primary,...x.e._related].filter(Boolean).forEach(n=>{let g=t.groups.find(g=>g.name===n);if(!g){g={id:uid(),name:n,color:'#2f5d8a',order:t.groups.length};t.groups.push(g)}if(n===x.e._primary)x.e.groups=[g.id];else if(n&&n!==x.e._primary)x.e.relatedGroups.push(g.id)});delete x.e._primary;delete x.e._related;t.events.push(x.e);keys.add(key(x.e));ok++});sortEvents(t);save();renderTimeline();document.getElementById('enh-preview').innerHTML='<div class="enh-result">追加成功: '+ok+'件\n重複: '+dup+'件\nエラー: '+errs.length+'件\n'+errs.join('\n')+'</div>'}
+  window.enhCopyOpen=function(){closeModal('tl-menu-modal');let m=document.getElementById('enh-copy-modal');if(!m){m=document.createElement('div');m.id='enh-copy-modal';m.className='modal-bg show';m.innerHTML='<div class="sheet"><h2>他の年表から出来事をコピー</h2><div id="enh-sources" class="enh-list"></div><div id="enh-copy-events" class="enh-list" style="margin-top:10px"></div><div class="modal-actions"><button class="btn-cancel" onclick="closeModal(\'enh-copy-modal\')">閉じる</button><button class="btn-ok" onclick="enhDoCopy()">コピー</button></div><div id="enh-copy-result"></div></div>';document.body.appendChild(m)}document.getElementById('enh-sources').innerHTML=appData.filter(x=>x.type==='timeline'&&x.id!==currentTimelineId).map(t=>`<label><input type="checkbox" value="${t.id}" onchange="enhListEvents()">${esc(t.name)}</label>`).join('')||'<div class="empty">他の年表がありません</div>';document.getElementById('enh-copy-events').innerHTML='';m.classList.add('show')}
+  window.enhListEvents=function(){let ids=[...document.querySelectorAll('#enh-sources input:checked')].map(x=>x.value),es=ids.flatMap(id=>{let t=getItem(id);return (t.events||[]).map(e=>({e,t}))});document.getElementById('enh-copy-events').innerHTML='<div class="enh-toolbar"><input id="enh-copy-search" placeholder="検索" oninput="enhListEventsFiltered()"><button onclick="document.querySelectorAll(\'#enh-copy-events label[data-copy-text]\').forEach(x=>x.style.display=\'flex\')">表示中を選択</button><button onclick="document.querySelectorAll(\'#enh-copy-events input\').forEach(x=>x.checked=true)">全選択</button><button onclick="document.querySelectorAll(\'#enh-copy-events input\').forEach(x=>x.checked=false)">全解除</button></div>'+es.map(({e,t})=>`<label data-copy-text="${esc((e.title+' '+t.name).toLowerCase())}"><input type="checkbox" value="${t.id}|${e.id}" onchange="this.closest(\'label\').classList.toggle(\'selected\',this.checked)"><span>${esc(e.title)}<small>${esc(t.name)} / ${fmtEvent(e)}</small></span></label>`).join('')+'<div class="sheet-note">選択件数はチェックボックスで確認できます。</div>'}
+  window.enhListEventsFiltered=function(){let q=document.getElementById('enh-copy-search').value.toLowerCase();document.querySelectorAll('#enh-copy-events label[data-copy-text]').forEach(x=>x.style.display=x.dataset.copyText.includes(q)?'flex':'none')}
+  window.enhDoCopy=function(){let dest=getItem(currentTimelineId),seen=new Set(dest.events.map(key)),ok=0,dup=0,err=0;document.querySelectorAll('#enh-copy-events input:checked').forEach(x=>{try{let [tid,eid]=x.value.split('|'),src=getItem(tid),orig=src.events.find(e=>e.id===eid);if(seen.has(key(orig))){dup++;return}let c=JSON.parse(JSON.stringify(orig));c.id=uid();c.groups=[];c.relatedGroups=[];[...(orig.groups||[]),...(orig.relatedGroups||[])].forEach(gid=>{let sg=src.groups?.find(g=>g.id===gid);if(!sg)return;let dg=dest.groups.find(g=>g.name===sg.name);if(!dg){dg={...JSON.parse(JSON.stringify(sg)),id:uid(),order:dest.groups.length};dest.groups.push(dg)}(orig.groups||[]).includes(gid)?c.groups.push(dg.id):c.relatedGroups.push(dg.id)});dest.events.push(c);seen.add(key(c));ok++}catch(e){err++}});sortEvents(dest);save();renderTimeline();document.getElementById('enh-copy-result').innerHTML='<div class="enh-result">コピー成功: '+ok+'件\n重複スキップ: '+dup+'件\nエラー: '+err+'件</div>'}
+  window.enhCompare=function(){let t=getItem(currentTimelineId),groups=(t.groups||[]).slice().sort((a,b)=>(a.order||0)-(b.order||0)),years=[...new Set(t.events.flatMap(e=>[e.year,...(e.endYear!=null?[e.endYear]:[])]))].sort((a,b)=>a-b),cols=groups.length?groups:[{id:'other',name:'その他',color:'#2f5d8a'}];let html=`<div class="compare-wrap"><div class="compare-grid">${cols.map(g=>`<div class="compare-col"><div class="compare-head" style="border-top:4px solid ${g.color}">${esc(g.name)}</div>${years.map(y=>`<div class="compare-year"><b>${fmtYear(y)}</b>${t.events.filter(e=>e.year===y&&((e.groups||[]).includes(g.id)||(e.compareMode==='all'&&(e.relatedGroups||[]).includes(g.id))||(g.id==='other'&&!(e.groups||[]).length))).map(e=>`<div class="compare-card" style="border-color:${e.color||g.color}" data-event="${e.id}">${esc(e.title)}${e.endYear===y&&e.endYear!==e.year?`<small>（${esc(e.title)}が終了）</small>`:''}</div>`).join('')}</div>`).join('')}</div>`).join('')}</div></div>`;let m=document.getElementById('enh-compare-modal');if(!m){m=document.createElement('div');m.id='enh-compare-modal';m.className='modal-bg';m.innerHTML='<div class="sheet"><h2>グループ比較</h2><div id="enh-compare-body"></div><div class="modal-actions"><button class="btn-cancel" onclick="closeModal(\'enh-compare-modal\')">閉じる</button></div></div>';document.body.appendChild(m)}document.getElementById('enh-compare-body').innerHTML=html;document.querySelectorAll('#enh-compare-body [data-event]').forEach(x=>x.onclick=()=>{closeModal('enh-compare-modal');editEvent(x.dataset.event)});m.classList.add('show')}
+  if(oldMigrate)oldMigrate();ensureData();inject();
+  const oldRender=window.renderTimeline;window.renderTimeline=function(){oldRender();inject()};
+  const oldStart=window.startFlashcards;window.startFlashcards=function(){let t=getItem(currentTimelineId),weak=document.getElementById('fc-weak-only')?.checked;fcCards=(t.events||[]).filter(e=>!e.exclude&&!((t.settings?.excludeTags||[]).some(x=>(e.tags||[]).includes(x)))&&(!weak||e.weak));let mode=document.getElementById('enh-fc-mode')?.value||'年代順';if(mode==='ランダム')fcCards=[...fcCards].sort(()=>Math.random()-.5);if(mode==='年代順')fcCards.sort(cmpEvent);fcIndex=0;fcRevealed=false;renderFlashcard()};
+  const fc=document.querySelector('#screen-fc .fc-filter');if(fc&&!document.getElementById('enh-fc-mode')){let s=document.createElement('select');s.id='enh-fc-mode';s.innerHTML='<option>年代順</option><option>ランダム</option><option>苦手のみ</option>';s.onchange=()=>{document.getElementById('fc-weak-only').checked=s.value==='苦手のみ';startFlashcards()};fc.prepend(s)}
+})();
+</script>
+<style>
+  #enh-viewbar{position:sticky;top:0;z-index:4;display:flex;align-items:center;gap:8px;padding:8px 16px;background:rgba(247,240,224,.96);border-bottom:1px solid var(--line);backdrop-filter:blur(10px)}
+  #enh-viewbar .view-name{font-family:var(--serif);font-weight:700;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  #enh-viewbar .view-seg{display:flex;background:#e7dcc1;border:1px solid var(--line);border-radius:9px;padding:3px;flex:0 0 auto}
+  #enh-viewbar button{border:0;background:transparent;border-radius:7px;padding:8px 11px;color:var(--ink);font-weight:700;cursor:pointer;white-space:nowrap}
+  #enh-viewbar button.on{background:#fffdf6;color:var(--blue);box-shadow:0 1px 3px rgba(74,58,32,.18)}
+  .enh-picker{border:1px solid var(--line);border-radius:10px;background:var(--card);padding:10px;margin-top:8px}.enh-picker-title{font-size:13px;color:var(--sub);font-weight:700;margin-bottom:7px}
+  .enh-chips{display:flex;flex-wrap:wrap;gap:6px;margin:4px 0 9px}.enh-chip{border:1px solid #d7c38c;background:#f7efd9;color:#6e541b;border-radius:18px;padding:5px 9px;font-size:12px;cursor:pointer}.enh-chip.on{border-color:var(--blue);background:#e2edf8;color:var(--blue)}.enh-chip .x{font-weight:800;margin-left:4px}
+  .enh-picker input{width:100%;padding:9px;border:1px solid var(--line);border-radius:8px;background:#fffdf6;font-size:15px}.enh-picker .new-row{display:flex;gap:7px;margin-top:8px}.enh-picker .new-row input{flex:1}.enh-picker .new-row button{border:1px solid var(--line);border-radius:8px;background:#fffdf6;padding:8px 10px;cursor:pointer}
+  .enh-options{max-height:150px;overflow:auto;display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}.enh-empty-note{padding:14px;border:1px dashed var(--line);border-radius:10px;background:#fbf6e8;color:var(--sub);line-height:1.6;margin:10px 0}.enh-empty-note button{margin-top:8px;padding:9px 12px;border:1px solid var(--line);border-radius:8px;background:var(--card);color:var(--blue);font-weight:700;cursor:pointer}.enh-one-note{font-size:12px;color:var(--sub);margin:8px 0}.enh-compare-toolbar{display:flex;gap:8px;align-items:center;overflow:auto;padding-bottom:8px}.enh-compare-toolbar button{white-space:nowrap;border:1px solid var(--line);border-radius:8px;background:var(--card);padding:8px 10px;cursor:pointer}.enh-compare-scroll{overflow:auto;border:1px solid var(--line);border-radius:12px;background:rgba(255,253,246,.62)}.enh-compare-grid{display:grid;grid-auto-flow:column;grid-auto-columns:minmax(210px,1fr);min-width:max-content}.enh-compare-col{border-right:1px solid var(--line)}.enh-compare-head{position:sticky;top:0;z-index:2;background:var(--card);padding:10px;font-weight:800;border-bottom:1px solid var(--line)}.enh-year-row{min-height:56px;padding:7px;border-bottom:1px dashed var(--line)}.enh-year-label{font-size:12px;color:var(--sub);font-weight:700}.enh-compare-card{padding:8px;margin-top:4px;border-left:4px solid var(--blue);border-radius:7px;background:rgba(255,255,255,.72);font-size:13px;cursor:pointer}.enh-related-mark{display:inline-flex;align-items:center;justify-content:center;width:24px;height:24px;margin:4px 3px 0 0;border:1px solid #c9b574;border-radius:50%;background:#f7efd9;color:#6e541b;cursor:pointer;font-size:11px}.enh-end-marker{font-size:11px;color:var(--sub);margin-top:4px}
+  @media(max-width:600px){#enh-viewbar{display:block}.view-name{display:block;margin-bottom:7px}#enh-viewbar .view-seg{width:100%}#enh-viewbar button{flex:1}.enh-compare-grid{grid-auto-columns:minmax(190px,1fr)}}
+  /* 比較表示専用: 1年=1行の横比較グリッド */
+  .enh-compare-root{user-select:none;-webkit-user-select:none}
+  .enh-compare-scroll{overflow:auto;max-width:100%;max-height:calc(100dvh - 220px);border:1px solid var(--line);border-radius:12px;background:rgba(255,253,246,.62);-webkit-overflow-scrolling:touch;overscroll-behavior:contain}
+  .enh-compare-grid{display:grid;grid-auto-flow:row;grid-auto-columns:unset;grid-auto-rows:minmax(56px,auto);grid-template-columns:minmax(62px,72px) repeat(var(--enh-compare-group-count),minmax(180px,220px));min-width:max-content}
+  .enh-compare-cell{min-width:0;min-height:56px;padding:8px;border-right:1px solid var(--line);border-bottom:1px dashed var(--line);background:rgba(255,253,246,.76);align-self:stretch}
+  .enh-compare-head{position:sticky;top:0;z-index:4;padding:10px 8px;background:var(--card);border-bottom:1px solid var(--line);font-weight:800;white-space:nowrap}
+  .enh-compare-year-head{left:0;z-index:7;color:var(--sub);box-shadow:2px 0 7px rgba(74,58,32,.12)}
+  .enh-group-head{border-top:4px solid var(--blue)}
+  .enh-year-label{position:sticky;left:0;z-index:3;display:flex;align-items:flex-start;background:var(--card);color:var(--sub);font-size:12px;font-weight:800;line-height:1.2;white-space:nowrap;box-shadow:2px 0 7px rgba(74,58,32,.10)}
+  .enh-compare-group-cell{vertical-align:top}
+  .enh-compare-filter{display:flex;align-items:center;gap:8px;margin:8px 0 10px}
+  .enh-compare-filter-label{flex:0 0 auto;color:var(--sub);font-size:12px;font-weight:800}
+  .enh-compare-toolbar{display:flex;gap:6px;align-items:center;min-width:0;overflow-x:auto;padding:0 0 3px}
+  .enh-filter-chip{white-space:nowrap;border:1px solid var(--line);border-radius:999px;background:var(--card);padding:6px 9px;color:var(--sub);font-size:12px;font-weight:700;cursor:pointer}
+  .enh-filter-chip.on{border-color:var(--blue);background:#e2edf8;color:var(--blue)}
+  .enh-compare-card{margin:0 0 5px;padding:7px 8px;border-left:4px solid var(--blue);border-radius:7px;background:rgba(255,255,255,.78);font-family:var(--serif);font-size:13px;font-weight:700;line-height:1.35;cursor:pointer}
+  .enh-related-mark{margin:0 3px 5px 0}
+  .enh-end-marker{margin:2px 0 0;color:var(--sub);font-size:11px;line-height:1.3}
+  .enh-compare-empty{display:block;min-height:1px}
+  @media(max-width:600px){.enh-compare-grid{grid-template-columns:minmax(62px,68px) repeat(var(--enh-compare-group-count),minmax(190px,220px))}.enh-compare-filter{align-items:flex-start}.enh-compare-filter-label{padding-top:7px}}
+</style>
+<script>
+(function(){
+  let tagDraft=[], groupDraft={primary:'',related:[]};
+  const norm=s=>String(s||'').trim().toLowerCase();
+  const colorOf=v=>{const s=String(v||'').trim();if(/^#[0-9a-f]{6}$/i.test(s))return s;return ({'赤':'#ff3b30','青':'#2f5d8a','緑':'#34c759','黄':'#ffcc00','紫':'#af52de','橙':'#ff9500','灰':'#8e8e93','白':'#ffffff'})[s]||null};
+  function tl(){return getItem(currentTimelineId)}
+  function allTags(t){return [...new Set((t?.events||[]).flatMap(e=>Array.isArray(e.tags)?e.tags:[]))].sort((a,b)=>a.localeCompare(b,'ja'))}
+  function ensureViewBar(){
+    const detail=document.getElementById('screen-detail');if(!detail)return;
+    let bar=document.getElementById('enh-viewbar');if(!bar){bar=document.createElement('div');bar.id='enh-viewbar';const sub=detail.querySelector('.subbar');detail.insertBefore(bar,sub)}
+    const t=tl();if(!t)return;const mode=t.viewMode==='compare'?'compare':'timeline';bar.innerHTML=`<div class="view-name">${esc(t.name)}</div><div class="view-seg"><button class="${mode==='timeline'?'on':''}" onclick="enhSetView('timeline')">☰ 年表表示</button><button class="${mode==='compare'?'on':''}" onclick="enhSetView('compare')">▥ 比較表示</button></div>`;
+  }
+  function saveView(){const t=tl();if(t){t.viewMode=t.viewMode==='compare'?'compare':'timeline';t.compareState=t.compareState||{selected:[],showOther:true};save()}}
+  window.enhSetView=function(mode){const t=tl();if(!t)return;t.viewMode=mode==='compare'?'compare':'timeline';t.compareState=t.compareState||{selected:[],showOther:true};saveView();ensureViewBar();renderTimeline()}
+  function visibleGroups(t){const state=t.compareState||{};const ids=Array.isArray(state.selected)&&state.selected.length?state.selected:(t.groups||[]).map(g=>g.id);return (t.groups||[]).filter(g=>ids.includes(g.id)).sort((a,b)=>(a.order??0)-(b.order??0))}
+  function compareHtml(t){
+    const groups=visibleGroups(t), state=t.compareState||{selected:[],showOther:true}, events=t.events||[];
+    if(!groups.length){return `<div class="enh-empty-note">比較表示を使うには、出来事にグループを設定してください。<br><button onclick="enhGroups();enhSetView('compare')">グループを作成</button> <button onclick="openAddEvent()">出来事を編集</button> <button onclick="enhSetView('timeline')">通常表示へ戻る</button></div>`}
+    const note=groups.length===1?'<div class="enh-one-note">グループを追加すると、複数の国や地域を横に並べて比較できます。</div>':'';
+    const years=[...new Set(events.flatMap(e=>[e.year,...(e.endYear!=null?[e.endYear]:[])]))].sort((a,b)=>a-b);
+    const cols=[...groups,...(state.showOther?[{id:'other',name:'その他',color:'#8e8e93'}]:[])].map(g=>`<div class="enh-compare-col"><div class="enh-compare-head" style="border-top:4px solid ${g.color||'#2f5d8a'}">${esc(g.name)}</div>${years.map(y=>{const cards=events.filter(e=>e.year===y&&((e.groups||[]).includes(g.id)||(e.compareMode==='all'&&(e.relatedGroups||[]).includes(g.id))||(g.id==='other'&&!(e.groups||[]).length)));const marks=events.filter(e=>e.year===y&&e.compareMode!=='all'&&(e.relatedGroups||[]).includes(g.id)&&!(e.groups||[]).includes(g.id));const end=events.filter(e=>e.endYear===y&&e.endYear!==e.year);return `<div class="enh-year-row"><div class="enh-year-label">${esc(fmtYear(y))}</div>${cards.map(e=>`<div class="enh-compare-card" style="border-color:${e.color||g.color}" onclick="enhFocusEvent('${e.id}')">${esc(e.title)}${e.endYear===y&&e.endYear!==e.year?`<div class="enh-end-marker">${esc(e.title)}が終了</div>`:''}</div>`).join('')}${marks.map(e=>`<button class="enh-related-mark" title="${esc(e.title)}へ移動" onclick="enhFocusEvent('${e.id}')">↗</button>`).join('')}${end.length&&cards.length===0?end.map(e=>`<div class="enh-end-marker">${esc(e.title)}が終了</div>`).join(''):''}</div>`}).join('')}</div>`).join('');
+    return `${note}<div class="enh-compare-toolbar">${(t.groups||[]).map(g=>`<button onclick="enhToggleCompareGroup('${g.id}')">${state.selected?.includes(g.id)?'✓ ':''}${esc(g.name)}</button>`).join('')}<button onclick="enhToggleOther()">${state.showOther?'✓ ':''}その他</button></div><div class="enh-compare-scroll"><div class="enh-compare-grid">${cols}</div></div>`;
+  }
+  function compareInlineCall(name,id){return name+'('+JSON.stringify(String(id))+')'}
+  function compareIsOtherEvent(e,g){return g.id==='other'&&!(e.groups||[]).length}
+  function compareIsPrimaryEvent(e,g){return (e.groups||[]).includes(g.id)}
+  function compareIsRelatedEvent(e,g){return (e.relatedGroups||[]).includes(g.id)}
+  function compareShowsCard(e,g){
+    return compareIsPrimaryEvent(e,g) || (e.compareMode==='all'&&compareIsRelatedEvent(e,g)) || compareIsOtherEvent(e,g)
+  }
+  function compareShowsRelatedMarker(e,g){
+    return e.compareMode!=='all' && !compareIsPrimaryEvent(e,g) && compareIsRelatedEvent(e,g)
+  }
+  function compareShowsEnd(e,g){
+    return e.endYear!=null && e.endYear!==e.year &&
+      (compareIsPrimaryEvent(e,g) || compareIsRelatedEvent(e,g) || compareIsOtherEvent(e,g))
+  }
+  function compareYearLabel(y){return y<0?'前'+Math.abs(y):String(y)}
+  function compareCardHtml(e,g){
+    const call=compareInlineCall('enhFocusEvent',e.id);
+    return '<div class="enh-compare-card" style="border-left-color:'+esc(e.color||g.color||'#2f5d8a')+'" onclick=\''+call+'\'>'+esc(e.title)+'</div>'
+  }
+  function compareRelatedHtml(e){
+    const call=compareInlineCall('enhFocusEvent',e.id), title=esc(e.title)+'へ移動';
+    return '<button type="button" class="enh-related-mark" title="'+title+'" aria-label="'+title+'" onclick=\''+call+'\'>↗</button>'
+  }
+  function compareEndHtml(e){
+    return '<div class="enh-end-marker">↳ '+esc(e.title)+'が終了</div>'
+  }
+  function compareCellHtml(events,y,g){
+    const parts=[];
+    events.filter(e=>e.year===y&&compareShowsCard(e,g)).forEach(e=>parts.push(compareCardHtml(e,g)));
+    events.filter(e=>e.year===y&&compareShowsRelatedMarker(e,g)).forEach(e=>parts.push(compareRelatedHtml(e)));
+    events.filter(e=>e.endYear===y&&compareShowsEnd(e,g)).forEach(e=>parts.push(compareEndHtml(e)));
+    return parts.join('')||'<span class="enh-compare-empty" aria-hidden="true"></span>'
+  }
+  function compareTableHtml(t){
+    const groups=visibleGroups(t), state=t.compareState||{selected:[],showOther:true}, events=t.events||[];
+    if(!groups.length){return '<div class="enh-empty-note">比較表示を使うには、出来事にグループを設定してください。<br><button onclick="enhGroups();enhSetView(\'compare\')">グループを作成</button> <button onclick="openAddEvent()">出来事を編集</button> <button onclick="enhSetView(\'timeline\')">通常表示へ戻る</button></div>'}
+    const note=groups.length===1?'<div class="enh-one-note">グループを追加すると、複数の国や地域を横に並べて比較できます。</div>':'';
+    const years=[...new Set(events.flatMap(e=>[e.year,...(e.endYear!=null?[e.endYear]:[])]))].sort((a,b)=>a-b);
+    const cols=[...groups,...((state.showOther!==false)?[{id:'other',name:'その他',color:'#8e8e93'}]:[])];
+    const shownGroups=visibleGroups(t);
+    const groupFilters=(t.groups||[]).map(g=>{
+      const on=shownGroups.some(x=>x.id===g.id), mark=on?'✓':'○';
+      return '<button type="button" class="enh-filter-chip '+(on?'on':'')+'" aria-pressed="'+on+'" onclick=\''+compareInlineCall('enhToggleCompareGroup',g.id)+'\'><span aria-hidden="true">'+mark+'</span> '+esc(g.name)+'</button>'
+    }).join('');
+    const otherOn=state.showOther!==false;
+    const otherFilter='<button type="button" class="enh-filter-chip '+(otherOn?'on':'')+'" aria-pressed="'+otherOn+'" onclick="enhToggleOther()"><span aria-hidden="true">'+(otherOn?'✓':'○')+'</span> その他</button>';
+    let cells='<div class="enh-compare-cell enh-compare-head enh-compare-year-head" role="columnheader">年</div>';
+    cols.forEach(g=>{cells+='<div class="enh-compare-cell enh-compare-head enh-group-head" role="columnheader" style="border-top-color:'+esc(g.color||'#2f5d8a')+'">'+esc(g.name)+'</div>'});
+    years.forEach(y=>{
+      cells+='<div class="enh-compare-cell enh-year-label" role="cell" data-compare-row="'+y+'">'+esc(compareYearLabel(y))+'</div>';
+      cols.forEach(g=>{cells+='<div class="enh-compare-cell enh-compare-group-cell" role="cell" data-compare-row="'+y+'">'+compareCellHtml(events,y,g)+'</div>'});
+    });
+    return note+'<div class="enh-compare-filter"><span class="enh-compare-filter-label">表示列</span><div class="enh-compare-toolbar" role="group" aria-label="比較表の表示列">'+groupFilters+otherFilter+'</div></div><div class="enh-compare-scroll" tabindex="0"><div class="enh-compare-grid" role="table" aria-label="比較年表" style="--enh-compare-group-count:'+cols.length+'">'+cells+'</div></div>'
+  }
+  window.enhToggleCompareGroup=function(id){const t=tl();t.compareState=t.compareState||{selected:[],showOther:true};const all=(t.groups||[]).map(g=>g.id);let a=Array.isArray(t.compareState.selected)&&t.compareState.selected.length?[...t.compareState.selected]:[...all];if(a.includes(id)){const next=a.filter(x=>x!==id);if(!next.length)return;t.compareState.selected=next}else t.compareState.selected=[...a,id];save();renderTimeline()}
+  window.enhToggleOther=function(){const t=tl();t.compareState=t.compareState||{selected:[],showOther:true};t.compareState.showOther=!t.compareState.showOther;save();renderTimeline()}
+  window.enhFocusEvent=function(id){enhSetView('timeline');setTimeout(()=>{const el=document.querySelector(`#detail-tl [data-id="${id}"]`);if(el){el.scrollIntoView({behavior:'smooth',block:'center'});el.classList.add('flash');setTimeout(()=>el.classList.remove('flash'),1700)}},30)}
+  const baseRender=window.renderTimeline;window.renderTimeline=function(){ensureViewBar();const t=tl(),c=document.getElementById('detail-tl');if(t&&t.viewMode==='compare'){c.className='enh-compare-root';c.innerHTML=compareTableHtml(t);return}c?.classList.remove('enh-compare-root');baseRender();ensureViewBar()};
+  const baseOpen=window.openAddEvent,baseEdit=window.editEvent,baseSave=window.saveEvent;
+  function groupNames(t,ids){return (ids||[]).map(id=>(t.groups||[]).find(g=>g.id===id)?.name||'').filter(Boolean)}
+  function buildTagPicker(){const box=document.getElementById('enh-tag-picker');if(!box)return;const t=tl(),q=norm(document.getElementById('enh-tag-search')?.value);const tags=allTags(t).filter(x=>!q||norm(x).includes(q));box.querySelector('.enh-chips').innerHTML=tagDraft.map(x=>`<button class="enh-chip on" onclick="enhToggleTag(${JSON.stringify(x)})">${esc(x)} <span class="x">×</span></button>`).join('')||'<span class="sheet-note">タグ未選択</span>';box.querySelector('.enh-options').innerHTML=tags.map(x=>`<button class="enh-chip ${tagDraft.includes(x)?'on':''}" onclick="enhToggleTag(${JSON.stringify(x)})">${tagDraft.includes(x)?'✓ ':''}${esc(x)}</button>`).join('')||'<span class="sheet-note">一致するタグがありません</span>'}
+  window.enhToggleTag=function(tag){tagDraft=tagDraft.includes(tag)?tagDraft.filter(x=>x!==tag):[...tagDraft,tag];document.getElementById('ev-tags').value=tagDraft.join(', ');buildTagPicker()}
+  window.enhAddTag=function(){const i=document.getElementById('enh-new-tag'),v=i.value.trim();if(!v)return;const existing=allTags(tl()).find(x=>x===v);if(!tagDraft.includes(existing||v))tagDraft.push(existing||v);i.value='';document.getElementById('ev-tags').value=tagDraft.join(', ');buildTagPicker()}
+  function injectPickers(){
+    const tags=document.getElementById('ev-tags');if(tags&&!document.getElementById('enh-tag-picker')){const b=document.createElement('div');b.id='enh-tag-picker';b.className='enh-picker';b.innerHTML='<div class="enh-picker-title">既存タグから選択</div><div class="enh-chips"></div><input id="enh-tag-search" placeholder="タグを検索"><div class="enh-options"></div><div class="new-row"><input id="enh-new-tag" placeholder="新しいタグを追加"><button onclick="enhAddTag()">追加</button></div>';tags.parentElement.appendChild(b);document.getElementById('enh-tag-search').oninput=buildTagPicker;document.getElementById('enh-new-tag').onkeydown=e=>{if(e.key==='Enter'){e.preventDefault();enhAddTag()}}}
+    const fields=document.getElementById('enh-event-fields');if(fields&&!document.getElementById('enh-group-picker')){const b=document.createElement('div');b.id='enh-group-picker';b.className='enh-picker';b.innerHTML='<div class="enh-picker-title">登録済みグループから選択</div><label>主グループ</label><select id="enh-primary-picker"></select><div class="enh-picker-title" style="margin-top:10px">関連グループ</div><div class="enh-chips" id="enh-related-chips"></div><input id="enh-group-search" placeholder="グループを検索"><div class="enh-options" id="enh-related-options"></div><div class="new-row"><input id="enh-new-group" placeholder="新しいグループ名"><input id="enh-new-group-color" placeholder="#2f5d8a" style="max-width:110px"><button onclick="enhAddGroup(&quot;related&quot;)">追加</button></div>';fields.appendChild(b);document.getElementById('enh-group-search').oninput=buildGroupPicker;document.getElementById('enh-primary-picker').onchange=()=>{if(document.getElementById('enh-primary-picker').value==='__new__'){enhAddGroup('primary');return}groupDraft.primary=document.getElementById('enh-primary-picker').value;groupDraft.related=groupDraft.related.filter(x=>x!==groupDraft.primary);syncGroupFields();buildGroupPicker()}}
+  }
+  function syncGroupFields(){const t=tl();const p=document.getElementById('enh-primary');if(p)p.value=groupDraft.primary;const r=document.getElementById('enh-related');if(r)r.value=groupNames(t,groupDraft.related).join(';')}
+  function buildGroupPicker(){const t=tl(),q=norm(document.getElementById('enh-group-search')?.value),groups=(t.groups||[]).filter(g=>!q||norm(g.name).includes(q));const p=document.getElementById('enh-primary-picker');if(!p)return;p.innerHTML='<option value="">なし</option><option value="__new__">＋新しいグループを作成</option>'+groups.map(g=>`<option value="${g.id}">${esc(g.name)}</option>`).join('');p.value=groupDraft.primary||'';document.getElementById('enh-related-chips').innerHTML=groupNames(t,groupDraft.related).map(n=>`<button class="enh-chip on" onclick="enhToggleRelated(${JSON.stringify(n)})">${esc(n)} <span class="x">×</span></button>`).join('')||'<span class="sheet-note">関連グループ未選択</span>';document.getElementById('enh-related-options').innerHTML=groups.filter(g=>g.id!==groupDraft.primary).map(g=>`<button class="enh-chip ${groupDraft.related.includes(g.id)?'on':''}" onclick="enhToggleRelated(${JSON.stringify(g.name)})">${groupDraft.related.includes(g.id)?'✓ ':''}${esc(g.name)}</button>`).join('');syncGroupFields()}
+  window.enhToggleRelated=function(name){const t=tl(),g=(t.groups||[]).find(x=>x.name===name);if(!g||g.id===groupDraft.primary)return;groupDraft.related=groupDraft.related.includes(g.id)?groupDraft.related.filter(x=>x!==g.id):[...new Set([...groupDraft.related,g.id])];buildGroupPicker()}
+  window.enhAddGroup=function(kind){const t=tl(),input=document.getElementById('enh-new-group'),typed=input?.value.trim(),name=typed||prompt('新しいグループ名','');if(!name||!name.trim())return;let g=(t.groups||[]).find(x=>x.name===name.trim());if(!g){g={id:uid(),name:name.trim(),color:colorOf(document.getElementById('enh-new-group-color')?.value)||'#2f5d8a',order:(t.groups||[]).length};t.groups.push(g)}if(kind==='primary'){groupDraft.primary=g.id;groupDraft.related=groupDraft.related.filter(x=>x!==g.id)}else if(g.id!==groupDraft.primary)groupDraft.related=[...new Set([...groupDraft.related,g.id])];if(input)input.value='';save();buildGroupPicker()}
+  function prepareEditor(e){injectPickers();tagDraft=[...(e?.tags||[])];groupDraft={primary:e?.groups?.[0]||'',related:[...(e?.relatedGroups||[])]};document.getElementById('ev-tags').value=tagDraft.join(', ');buildTagPicker();buildGroupPicker()}
+  window.openAddEvent=function(){baseOpen();prepareEditor(null)};window.editEvent=function(id){baseEdit(id);const e=tl().events.find(x=>x.id===id);prepareEditor(e)};window.saveEvent=function(){const raw=document.getElementById('ev-tags').value.split(/[;,]/).map(x=>x.trim()).filter(Boolean);if(raw.join(', ')!==tagDraft.join(', '))tagDraft=[...new Set(raw)];document.getElementById('ev-tags').value=tagDraft.join(', ');syncGroupFields();baseSave()};
+  window.enhCompareSettings=function(){const t=tl(),s=t.compareState||{selected:(t.groups||[]).map(g=>g.id),showOther:true};const chosen=prompt((t.groups||[]).map((g,i)=>`${i+1}. ${s.selected.includes(g.id)?'✓':'○'} ${g.name}`).join('\n')+'\n\n表示する番号をカンマ区切りで入力', (t.groups||[]).map((g,i)=>s.selected.includes(g.id)?i+1:'').filter(Boolean).join(','));if(chosen===null)return;const ids=chosen.split(',').map(x=>+(x.trim())-1).filter(i=>t.groups[i]).map(i=>t.groups[i].id);t.compareState={selected:ids,showOther:s.showOther};save();if(t.viewMode==='compare')renderTimeline()}
+  ensureViewBar();injectPickers();
+  const menuCompare=document.querySelector('[onclick="enhCompare()"]');if(menuCompare){menuCompare.textContent='比較表示の設定';menuCompare.setAttribute('onclick','enhCompareSettings()')}
+})();
+</script>
+<script>
+  if(window.__enhGroupModal) window.enhGroups=window.__enhGroupModal;
+  if(window.__enhCompareSettingsUI) window.enhCompareSettings=window.__enhCompareSettingsUI;
+</script>
+</body>
+</html>
