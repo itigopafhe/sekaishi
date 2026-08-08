@@ -409,11 +409,13 @@
   <div class="sheet">
     <h2>出来事を一気に追加</h2>
     <p class="sheet-note">CSV または Excel ファイルから複数の出来事をまとめて追加します。<br>
-    <b>「年号」と「出来事」は必須</b>、それ以外（終了年号・月・日・説明・ゴロ合わせ・タグ）は任意です。<br>
-    紀元前は「-44」または「紀元前44」、タグは「;」区切りで入力してください。</p>
+    <b>「年号」と「出来事」は必須</b>、それ以外（終了年号・月・日・説明・ゴロ合わせ・タグ・主グループ・関連グループ）は任意です。<br>
+    紀元前は「-44」または「紀元前44」、タグと関連グループの複数指定は「|」区切りです。グループは現在の年表にある名前を入力してください。</p>
     <button class="bigbtn" onclick="downloadTemplate()">⬇️ ファイルの雛形をダウンロード（CSV）</button>
     <button class="bigbtn primary" onclick="document.getElementById('bulk-file').click()">📁 ファイルを選択</button>
     <input type="file" id="bulk-file" accept=".csv,.xlsx,.xls,text/csv" style="display:none" onchange="onBulkFile(this)">
+    <div id="bulk-preview" style="margin-top:10px"></div>
+    <button class="bigbtn primary" id="bulk-commit" onclick="commitBulkPreview()" disabled>確認した内容を追加</button>
     <div class="modal-actions"><button class="btn-cancel" onclick="closeModal('bulk-modal')">閉じる</button></div>
   </div>
 </div>
@@ -1103,19 +1105,7 @@ function openTimelineMenu(){
   document.getElementById('tl-menu-title').textContent = getItem(currentTimelineId).name;
   document.getElementById('tl-menu-modal').classList.add('show');
 }
-function openBulk(){ closeModal('tl-menu-modal'); document.getElementById('bulk-modal').classList.add('show'); }
-
 /* --- CSV template & parsing --- */
-function downloadTemplate(){
-  const rows = [
-    ['年号','終了年号','月','日','出来事','説明','ゴロ合わせ','タグ(;区切り)'],
-    ['645','','3','','大化の改新','蘇我氏を倒す','むしごろし','飛鳥時代;政治改革'],
-    ['-44','','','','カエサル暗殺','共和政ローマの動乱','','古代ローマ'],
-    ['1592','1598','','','文禄・慶長の役','豊臣秀吉の朝鮮出兵','','安土桃山時代']
-  ];
-  const csv = rows.map(r=>r.map(csvCell).join(',')).join('\r\n');
-  download('chronology_template.csv', '﻿'+csv, 'text/csv;charset=utf-8');
-}
 function parseYear(s){
   if(s==null) return null; s=String(s).trim(); if(s==='') return null;
   let m=s.match(/(?:紀元前|BC|B\.C\.)\s*(\d+)/i);
@@ -1140,33 +1130,6 @@ function parseCSV(text){
   if(cur!==''||row.length){ row.push(cur); rows.push(row); }
   return rows.filter(r=>r.some(c=>String(c).trim()!==''));
 }
-function rowsToEvents(rows){
-  if(!rows.length) return {events:[],skipped:0};
-  const header = rows[0].map(h=>String(h).trim());
-  const find = names => header.findIndex(h=>{ const hh=h.replace(/[(（].*$/,'').trim(); return names.includes(hh); });
-  let ci = { year:find(['年号','開始年号','年']), end:find(['終了年号','終了年','終了']),
-             month:find(['月']), day:find(['日']), title:find(['出来事','見出し','タイトル','イベント']),
-             sub:find(['説明','サブタイトル','詳細']), goro:find(['ゴロ合わせ','ゴロ','語呂','語呂合わせ']),
-             tags:find(['タグ']) };
-  let start=1;
-  if(ci.year<0 || ci.title<0){               // ヘッダー無し → 位置で解釈
-    ci={ year:0,end:1,month:2,day:3,title:4,sub:5,goro:6,tags:7 };
-    start = (parseYear(header[0])===null) ? 1 : 0;
-  }
-  const get=(cells,k)=> (ci[k]>=0 && ci[k]<cells.length)? String(cells[ci[k]]).trim() : '';
-  const events=[]; let skipped=0;
-  for(let r=start;r<rows.length;r++){
-    const cells=rows[r];
-    const y=parseYear(get(cells,'year')); const title=get(cells,'title');
-    if(y===null || !title){ skipped++; continue; }
-    const endRaw=get(cells,'end'); const endY=endRaw?parseYear(endRaw):null;
-    const month=parseInt(get(cells,'month'),10)||0;
-    const day=parseInt(get(cells,'day'),10)||0;
-    const tags=get(cells,'tags').split(/[;；,、\/|]/).map(t=>t.trim()).filter(Boolean);
-    events.push(ev(y,title,get(cells,'sub'),get(cells,'goro'),tags,{endYear:(endY!=null?endY:null),month,day}));
-  }
-  return {events,skipped};
-}
 function onBulkFile(input){
   const file=input.files[0]; if(!file){ return; }
   const name=file.name.toLowerCase();
@@ -1187,15 +1150,6 @@ function onBulkFile(input){
     reader.readAsText(file,'UTF-8');
   }
   input.value='';
-}
-function finishBulk(rows){
-  const {events,skipped}=rowsToEvents(rows);
-  if(!events.length){ alert('インポートできる出来事が見つかりませんでした。\n「年号」と「出来事」は必須です。'); return; }
-  const tl=getItem(currentTimelineId);
-  tl.events=tl.events.concat(events);
-  sortEvents(tl); save(); renderTimeline();
-  closeModal('bulk-modal');
-  alert(events.length+'件の出来事がインポートされました'+(skipped?`\n（${skipped}件は年号または出来事が未入力のためスキップしました）`:''));
 }
 function loadSheetJS(ok,fail){
   if(window.XLSX){ ok(); return; }
@@ -1330,10 +1284,171 @@ showScreen('list');
 })();
 </script>
 <script>
+/* CSV / Excel bulk import: tags and group names */
+let bulkPreviewData = null;
+
+function resetBulkPreview(){
+  bulkPreviewData = null;
+  const preview = document.getElementById('bulk-preview');
+  const commit = document.getElementById('bulk-commit');
+  if(preview) preview.innerHTML = '';
+  if(commit) commit.disabled = true;
+}
+
+function openBulk(){
+  closeModal('tl-menu-modal');
+  resetBulkPreview();
+  document.getElementById('bulk-modal').classList.add('show');
+}
+
+function splitBulkValues(value){
+  return [...new Set(String(value == null ? '' : value)
+    .split(/[|｜;；,、\/]/)
+    .map(value => value.trim())
+    .filter(Boolean))];
+}
+
+function findBulkGroupByName(timeline, name){
+  const normalized = String(name == null ? '' : name).trim();
+  if(!normalized) return null;
+  return (timeline.groups || []).find(group => String(group.name || '').trim() === normalized) || null;
+}
+
+function downloadTemplate(){
+  const timeline = getItem(currentTimelineId);
+  const groupNames = (timeline?.groups || [])
+    .map(group => String(group.name || '').trim())
+    .filter(Boolean);
+  const primary1 = groupNames[0] || 'スペイン';
+  const primary2 = groupNames[1] || groupNames[0] || '神聖ローマ帝国';
+  const related2 = groupNames.filter(name => name !== primary2).slice(0, 2).join('|') ||
+    (groupNames.length ? '' : 'フランス|スウェーデン');
+  const rows = [
+    ['年号','終了年号','月','日','出来事','説明','ゴロ合わせ','タグ(|区切り)','主グループ','関連グループ'],
+    ['1492','','','','コロンブスが新大陸に到達','新大陸へ到達','','大航海時代|探検',primary1,''],
+    ['1618','1648','','','三十年戦争','宗教戦争','','戦争|宗教',primary2,related2]
+  ];
+  const csv = rows.map(row => row.map(csvCell).join(',')).join('\r\n');
+  download('chronology_template.csv', '\ufeff' + csv, 'text/csv;charset=utf-8');
+}
+
+function rowsToEvents(rows, timeline = getItem(currentTimelineId)){
+  if(!rows.length) return {events:[], skipped:0, items:[]};
+  const header = rows[0].map(value => String(value).trim());
+  const find = names => header.findIndex(value => {
+    const normalized = value.replace(/[\(（].*$/, '').trim();
+    return names.includes(normalized);
+  });
+  let columns = {
+    year:find(['年号','開始年号','年']), end:find(['終了年号','終了年','終了']),
+    month:find(['月']), day:find(['日']), title:find(['出来事','見出し','タイトル','イベント']),
+    sub:find(['説明','サブタイトル','詳細']), goro:find(['ゴロ合わせ','ゴロ','語呂','語呂合わせ']),
+    tags:find(['タグ']), primary:find(['主グループ','メイングループ']), related:find(['関連グループ'])
+  };
+  let start = 1;
+  if(columns.year < 0 || columns.title < 0){
+    columns = {year:0,end:1,month:2,day:3,title:4,sub:5,goro:6,tags:7,primary:8,related:9};
+    start = parseYear(header[0]) === null ? 1 : 0;
+  }
+  const get = (cells, key) => columns[key] >= 0 && columns[key] < cells.length
+    ? String(cells[columns[key]]).trim() : '';
+  const events = [];
+  const items = [];
+  for(let rowIndex = start; rowIndex < rows.length; rowIndex++){
+    const cells = rows[rowIndex];
+    const year = parseYear(get(cells,'year'));
+    const title = get(cells,'title');
+    const tags = splitBulkValues(get(cells,'tags'));
+    const primaryName = get(cells,'primary').trim();
+    const relatedNames = splitBulkValues(get(cells,'related'))
+      .filter(name => name !== primaryName);
+    const errors = [];
+    if(year === null) errors.push('年号が不正です');
+    if(!title) errors.push('出来事が空欄です');
+
+    const primaryGroup = primaryName ? findBulkGroupByName(timeline, primaryName) : null;
+    if(primaryName && !primaryGroup) errors.push('存在しないグループ: ' + primaryName);
+    const relatedGroups = [];
+    relatedNames.forEach(name => {
+      const group = findBulkGroupByName(timeline, name);
+      if(!group) errors.push('存在しないグループ: ' + name);
+      else if(!relatedGroups.some(item => item.id === group.id)) relatedGroups.push(group);
+    });
+
+    let event = null;
+    if(year !== null && title){
+      const endRaw = get(cells,'end');
+      const endYear = endRaw ? parseYear(endRaw) : null;
+      event = ev(year,title,get(cells,'sub'),get(cells,'goro'),tags,{
+        endYear:endYear != null ? endYear : null,
+        month:parseInt(get(cells,'month'),10) || 0,
+        day:parseInt(get(cells,'day'),10) || 0
+      });
+      event.groups = primaryGroup ? [primaryGroup.id] : [];
+      event.relatedGroups = [...new Set(relatedGroups.map(group => group.id))]
+        .filter(id => !event.groups.includes(id));
+      event.compareMode = 'primary';
+      event.color = null;
+      event.exclude = false;
+    }
+    const item = {row:rowIndex + 1, title, tags, primaryName, relatedNames, errors, event};
+    items.push(item);
+    if(event && errors.length === 0) events.push(event);
+  }
+  return {events, skipped:items.filter(item => item.errors.length > 0).length, items};
+}
+
+function renderBulkPreview(result){
+  const preview = document.getElementById('bulk-preview');
+  if(!preview) return;
+  if(!result.items.length){
+    preview.innerHTML = '<div class="enh-result preview-err">登録できるデータ行がありません。</div>';
+    return;
+  }
+  const errorCount = result.items.filter(item => item.errors.length).length;
+  const details = result.items.map(item => {
+    if(item.errors.length){
+      return '<div class="preview-err">' + item.row + '行目: ' +
+        item.errors.map(esc).join(' / ') + '</div>';
+    }
+    const tags = item.tags.length ? item.tags.join(' | ') : 'なし';
+    const primary = item.primaryName || 'なし';
+    const related = item.relatedNames.length ? item.relatedNames.join(' | ') : 'なし';
+    return '<div class="preview-ok">' + item.row + '行目: ' + esc(item.title) + '</div>' +
+      '<div class="sheet-note">タグ: ' + esc(tags) + ' / 主グループ: ' + esc(primary) +
+      ' / 関連グループ: ' + esc(related) + '</div>';
+  }).join('');
+  preview.innerHTML = '<div class="enh-result">登録可能: ' + result.events.length +
+    '件　エラー: ' + errorCount + '件<br>' + details + '</div>';
+}
+
+function finishBulk(rows){
+  const timeline = getItem(currentTimelineId);
+  bulkPreviewData = rowsToEvents(rows, timeline);
+  renderBulkPreview(bulkPreviewData);
+  const commit = document.getElementById('bulk-commit');
+  if(commit) commit.disabled = bulkPreviewData.events.length === 0;
+}
+
+function commitBulkPreview(){
+  if(!bulkPreviewData || !bulkPreviewData.events.length) return;
+  const timeline = getItem(currentTimelineId);
+  const events = bulkPreviewData.events;
+  const skipped = bulkPreviewData.items.filter(item => item.errors.length).length;
+  timeline.events = timeline.events.concat(events);
+  sortEvents(timeline);
+  save();
+  renderTimeline();
+  closeModal('bulk-modal');
+  resetBulkPreview();
+  alert(events.length + '件の出来事をインポートしました' +
+    (skipped ? '\n' + skipped + '件はエラーのため登録しませんでした' : ''));
+}
+</script>
+<script>
   if(window.__enhGroupModal) window.enhGroups=window.__enhGroupModal;
   if(window.__enhCompareSettingsUI) window.enhCompareSettings=window.__enhCompareSettingsUI;
 </script>
-</body>
 <style>
   .enh-actions{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:10px 0}
   .enh-actions button,.enh-toolbar button{padding:10px;border:1px solid var(--line);border-radius:10px;background:var(--card);color:var(--ink);cursor:pointer;font-weight:600}
@@ -1396,6 +1511,26 @@ showScreen('list');
   .enh-picker input{width:100%;padding:9px;border:1px solid var(--line);border-radius:8px;background:#fffdf6;font-size:15px}.enh-picker .new-row{display:flex;gap:7px;margin-top:8px}.enh-picker .new-row input{flex:1}.enh-picker .new-row button{border:1px solid var(--line);border-radius:8px;background:#fffdf6;padding:8px 10px;cursor:pointer}
   .enh-options{max-height:150px;overflow:auto;display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}.enh-empty-note{padding:14px;border:1px dashed var(--line);border-radius:10px;background:#fbf6e8;color:var(--sub);line-height:1.6;margin:10px 0}.enh-empty-note button{margin-top:8px;padding:9px 12px;border:1px solid var(--line);border-radius:8px;background:var(--card);color:var(--blue);font-weight:700;cursor:pointer}.enh-one-note{font-size:12px;color:var(--sub);margin:8px 0}.enh-compare-toolbar{display:flex;gap:8px;align-items:center;overflow:auto;padding-bottom:8px}.enh-compare-toolbar button{white-space:nowrap;border:1px solid var(--line);border-radius:8px;background:var(--card);padding:8px 10px;cursor:pointer}.enh-compare-scroll{overflow:auto;border:1px solid var(--line);border-radius:12px;background:rgba(255,253,246,.62)}.enh-compare-grid{display:grid;grid-auto-flow:column;grid-auto-columns:minmax(210px,1fr);min-width:max-content}.enh-compare-col{border-right:1px solid var(--line)}.enh-compare-head{position:sticky;top:0;z-index:2;background:var(--card);padding:10px;font-weight:800;border-bottom:1px solid var(--line)}.enh-year-row{min-height:56px;padding:7px;border-bottom:1px dashed var(--line)}.enh-year-label{font-size:12px;color:var(--sub);font-weight:700}.enh-compare-card{padding:8px;margin-top:4px;border-left:4px solid var(--blue);border-radius:7px;background:rgba(255,255,255,.72);font-size:13px;cursor:pointer}.enh-related-mark{display:inline-flex;align-items:center;justify-content:center;width:24px;height:24px;margin:4px 3px 0 0;border:1px solid #c9b574;border-radius:50%;background:#f7efd9;color:#6e541b;cursor:pointer;font-size:11px}.enh-end-marker{font-size:11px;color:var(--sub);margin-top:4px}
   @media(max-width:600px){#enh-viewbar{display:block}.view-name{display:block;margin-bottom:7px}#enh-viewbar .view-seg{width:100%}#enh-viewbar button{flex:1}.enh-compare-grid{grid-auto-columns:minmax(190px,1fr)}}
+  /* 比較表示専用: 1年=1行の横比較グリッド */
+  .enh-compare-root{user-select:none;-webkit-user-select:none}
+  .enh-compare-scroll{overflow:auto;max-width:100%;max-height:calc(100dvh - 220px);border:1px solid var(--line);border-radius:12px;background:rgba(255,253,246,.62);-webkit-overflow-scrolling:touch;overscroll-behavior:contain}
+  .enh-compare-grid{display:grid;grid-auto-flow:row;grid-auto-columns:unset;grid-auto-rows:minmax(56px,auto);grid-template-columns:minmax(62px,72px) repeat(var(--enh-compare-group-count),minmax(180px,220px));min-width:max-content}
+  .enh-compare-cell{min-width:0;min-height:56px;padding:8px;border-right:1px solid var(--line);border-bottom:1px dashed var(--line);background:rgba(255,253,246,.76);align-self:stretch}
+  .enh-compare-head{position:sticky;top:0;z-index:4;padding:10px 8px;background:var(--card);border-bottom:1px solid var(--line);font-weight:800;white-space:nowrap}
+  .enh-compare-year-head{left:0;z-index:7;color:var(--sub);box-shadow:2px 0 7px rgba(74,58,32,.12)}
+  .enh-group-head{border-top:4px solid var(--blue)}
+  .enh-year-label{position:sticky;left:0;z-index:3;display:flex;align-items:flex-start;background:var(--card);color:var(--sub);font-size:12px;font-weight:800;line-height:1.2;white-space:nowrap;box-shadow:2px 0 7px rgba(74,58,32,.10)}
+  .enh-compare-group-cell{vertical-align:top}
+  .enh-compare-filter{display:flex;align-items:center;gap:8px;margin:8px 0 10px}
+  .enh-compare-filter-label{flex:0 0 auto;color:var(--sub);font-size:12px;font-weight:800}
+  .enh-compare-toolbar{display:flex;gap:6px;align-items:center;min-width:0;overflow-x:auto;padding:0 0 3px}
+  .enh-filter-chip{white-space:nowrap;border:1px solid var(--line);border-radius:999px;background:var(--card);padding:6px 9px;color:var(--sub);font-size:12px;font-weight:700;cursor:pointer}
+  .enh-filter-chip.on{border-color:var(--blue);background:#e2edf8;color:var(--blue)}
+  .enh-compare-card{margin:0 0 5px;padding:7px 8px;border-left:4px solid var(--blue);border-radius:7px;background:rgba(255,255,255,.78);font-family:var(--serif);font-size:13px;font-weight:700;line-height:1.35;cursor:pointer}
+  .enh-related-mark{margin:0 3px 5px 0}
+  .enh-end-marker{margin:2px 0 0;color:var(--sub);font-size:11px;line-height:1.3}
+  .enh-compare-empty{display:block;min-height:1px}
+  @media(max-width:600px){.enh-compare-grid{grid-template-columns:minmax(62px,68px) repeat(var(--enh-compare-group-count),minmax(190px,220px))}.enh-compare-filter{align-items:flex-start}.enh-compare-filter-label{padding-top:7px}}
 </style>
 <script>
 (function(){
@@ -1420,10 +1555,64 @@ showScreen('list');
     const cols=[...groups,...(state.showOther?[{id:'other',name:'その他',color:'#8e8e93'}]:[])].map(g=>`<div class="enh-compare-col"><div class="enh-compare-head" style="border-top:4px solid ${g.color||'#2f5d8a'}">${esc(g.name)}</div>${years.map(y=>{const cards=events.filter(e=>e.year===y&&((e.groups||[]).includes(g.id)||(e.compareMode==='all'&&(e.relatedGroups||[]).includes(g.id))||(g.id==='other'&&!(e.groups||[]).length)));const marks=events.filter(e=>e.year===y&&e.compareMode!=='all'&&(e.relatedGroups||[]).includes(g.id)&&!(e.groups||[]).includes(g.id));const end=events.filter(e=>e.endYear===y&&e.endYear!==e.year);return `<div class="enh-year-row"><div class="enh-year-label">${esc(fmtYear(y))}</div>${cards.map(e=>`<div class="enh-compare-card" style="border-color:${e.color||g.color}" onclick="enhFocusEvent('${e.id}')">${esc(e.title)}${e.endYear===y&&e.endYear!==e.year?`<div class="enh-end-marker">${esc(e.title)}が終了</div>`:''}</div>`).join('')}${marks.map(e=>`<button class="enh-related-mark" title="${esc(e.title)}へ移動" onclick="enhFocusEvent('${e.id}')">↗</button>`).join('')}${end.length&&cards.length===0?end.map(e=>`<div class="enh-end-marker">${esc(e.title)}が終了</div>`).join(''):''}</div>`}).join('')}</div>`).join('');
     return `${note}<div class="enh-compare-toolbar">${(t.groups||[]).map(g=>`<button onclick="enhToggleCompareGroup('${g.id}')">${state.selected?.includes(g.id)?'✓ ':''}${esc(g.name)}</button>`).join('')}<button onclick="enhToggleOther()">${state.showOther?'✓ ':''}その他</button></div><div class="enh-compare-scroll"><div class="enh-compare-grid">${cols}</div></div>`;
   }
-  window.enhToggleCompareGroup=function(id){const t=tl();t.compareState=t.compareState||{selected:[],showOther:true};let a=t.compareState.selected||[];t.compareState.selected=a.includes(id)?a.filter(x=>x!==id):[...a,id];save();renderTimeline()}
+  function compareInlineCall(name,id){return name+'('+JSON.stringify(String(id))+')'}
+  function compareIsOtherEvent(e,g){return g.id==='other'&&!(e.groups||[]).length}
+  function compareIsPrimaryEvent(e,g){return (e.groups||[]).includes(g.id)}
+  function compareIsRelatedEvent(e,g){return (e.relatedGroups||[]).includes(g.id)}
+  function compareShowsCard(e,g){
+    return compareIsPrimaryEvent(e,g) || (e.compareMode==='all'&&compareIsRelatedEvent(e,g)) || compareIsOtherEvent(e,g)
+  }
+  function compareShowsRelatedMarker(e,g){
+    return e.compareMode!=='all' && !compareIsPrimaryEvent(e,g) && compareIsRelatedEvent(e,g)
+  }
+  function compareShowsEnd(e,g){
+    return e.endYear!=null && e.endYear!==e.year &&
+      (compareIsPrimaryEvent(e,g) || compareIsRelatedEvent(e,g) || compareIsOtherEvent(e,g))
+  }
+  function compareYearLabel(y){return y<0?'前'+Math.abs(y):String(y)}
+  function compareCardHtml(e,g){
+    const call=compareInlineCall('enhFocusEvent',e.id);
+    return '<div class="enh-compare-card" style="border-left-color:'+esc(e.color||g.color||'#2f5d8a')+'" onclick=\''+call+'\'>'+esc(e.title)+'</div>'
+  }
+  function compareRelatedHtml(e){
+    const call=compareInlineCall('enhFocusEvent',e.id), title=esc(e.title)+'へ移動';
+    return '<button type="button" class="enh-related-mark" title="'+title+'" aria-label="'+title+'" onclick=\''+call+'\'>↗</button>'
+  }
+  function compareEndHtml(e){
+    return '<div class="enh-end-marker">↳ '+esc(e.title)+'が終了</div>'
+  }
+  function compareCellHtml(events,y,g){
+    const parts=[];
+    events.filter(e=>e.year===y&&compareShowsCard(e,g)).forEach(e=>parts.push(compareCardHtml(e,g)));
+    events.filter(e=>e.year===y&&compareShowsRelatedMarker(e,g)).forEach(e=>parts.push(compareRelatedHtml(e)));
+    events.filter(e=>e.endYear===y&&compareShowsEnd(e,g)).forEach(e=>parts.push(compareEndHtml(e)));
+    return parts.join('')||'<span class="enh-compare-empty" aria-hidden="true"></span>'
+  }
+  function compareTableHtml(t){
+    const groups=visibleGroups(t), state=t.compareState||{selected:[],showOther:true}, events=t.events||[];
+    if(!groups.length){return '<div class="enh-empty-note">比較表示を使うには、出来事にグループを設定してください。<br><button onclick="enhGroups();enhSetView(\'compare\')">グループを作成</button> <button onclick="openAddEvent()">出来事を編集</button> <button onclick="enhSetView(\'timeline\')">通常表示へ戻る</button></div>'}
+    const note=groups.length===1?'<div class="enh-one-note">グループを追加すると、複数の国や地域を横に並べて比較できます。</div>':'';
+    const years=[...new Set(events.flatMap(e=>[e.year,...(e.endYear!=null?[e.endYear]:[])]))].sort((a,b)=>a-b);
+    const cols=[...groups,...((state.showOther!==false)?[{id:'other',name:'その他',color:'#8e8e93'}]:[])];
+    const shownGroups=visibleGroups(t);
+    const groupFilters=(t.groups||[]).map(g=>{
+      const on=shownGroups.some(x=>x.id===g.id), mark=on?'✓':'○';
+      return '<button type="button" class="enh-filter-chip '+(on?'on':'')+'" aria-pressed="'+on+'" onclick=\''+compareInlineCall('enhToggleCompareGroup',g.id)+'\'><span aria-hidden="true">'+mark+'</span> '+esc(g.name)+'</button>'
+    }).join('');
+    const otherOn=state.showOther!==false;
+    const otherFilter='<button type="button" class="enh-filter-chip '+(otherOn?'on':'')+'" aria-pressed="'+otherOn+'" onclick="enhToggleOther()"><span aria-hidden="true">'+(otherOn?'✓':'○')+'</span> その他</button>';
+    let cells='<div class="enh-compare-cell enh-compare-head enh-compare-year-head" role="columnheader">年</div>';
+    cols.forEach(g=>{cells+='<div class="enh-compare-cell enh-compare-head enh-group-head" role="columnheader" style="border-top-color:'+esc(g.color||'#2f5d8a')+'">'+esc(g.name)+'</div>'});
+    years.forEach(y=>{
+      cells+='<div class="enh-compare-cell enh-year-label" role="cell" data-compare-row="'+y+'">'+esc(compareYearLabel(y))+'</div>';
+      cols.forEach(g=>{cells+='<div class="enh-compare-cell enh-compare-group-cell" role="cell" data-compare-row="'+y+'">'+compareCellHtml(events,y,g)+'</div>'});
+    });
+    return note+'<div class="enh-compare-filter"><span class="enh-compare-filter-label">表示列</span><div class="enh-compare-toolbar" role="group" aria-label="比較表の表示列">'+groupFilters+otherFilter+'</div></div><div class="enh-compare-scroll" tabindex="0"><div class="enh-compare-grid" role="table" aria-label="比較年表" style="--enh-compare-group-count:'+cols.length+'">'+cells+'</div></div>'
+  }
+  window.enhToggleCompareGroup=function(id){const t=tl();t.compareState=t.compareState||{selected:[],showOther:true};const all=(t.groups||[]).map(g=>g.id);let a=Array.isArray(t.compareState.selected)&&t.compareState.selected.length?[...t.compareState.selected]:[...all];if(a.includes(id)){const next=a.filter(x=>x!==id);if(!next.length)return;t.compareState.selected=next}else t.compareState.selected=[...a,id];save();renderTimeline()}
   window.enhToggleOther=function(){const t=tl();t.compareState=t.compareState||{selected:[],showOther:true};t.compareState.showOther=!t.compareState.showOther;save();renderTimeline()}
   window.enhFocusEvent=function(id){enhSetView('timeline');setTimeout(()=>{const el=document.querySelector(`#detail-tl [data-id="${id}"]`);if(el){el.scrollIntoView({behavior:'smooth',block:'center'});el.classList.add('flash');setTimeout(()=>el.classList.remove('flash'),1700)}},30)}
-  const baseRender=window.renderTimeline;window.renderTimeline=function(){ensureViewBar();const t=tl();if(t&&t.viewMode==='compare'){const c=document.getElementById('detail-tl');c.className='enh-compare-root';c.innerHTML=compareHtml(t);return}baseRender();ensureViewBar()};
+  const baseRender=window.renderTimeline;window.renderTimeline=function(){ensureViewBar();const t=tl(),c=document.getElementById('detail-tl');if(t&&t.viewMode==='compare'){c.className='enh-compare-root';c.innerHTML=compareTableHtml(t);return}c?.classList.remove('enh-compare-root');baseRender();ensureViewBar()};
   const baseOpen=window.openAddEvent,baseEdit=window.editEvent,baseSave=window.saveEvent;
   function groupNames(t,ids){return (ids||[]).map(id=>(t.groups||[]).find(g=>g.id===id)?.name||'').filter(Boolean)}
   function buildTagPicker(){const box=document.getElementById('enh-tag-picker');if(!box)return;const t=tl(),q=norm(document.getElementById('enh-tag-search')?.value);const tags=allTags(t).filter(x=>!q||norm(x).includes(q));box.querySelector('.enh-chips').innerHTML=tagDraft.map(x=>`<button class="enh-chip on" onclick="enhToggleTag(${JSON.stringify(x)})">${esc(x)} <span class="x">×</span></button>`).join('')||'<span class="sheet-note">タグ未選択</span>';box.querySelector('.enh-options').innerHTML=tags.map(x=>`<button class="enh-chip ${tagDraft.includes(x)?'on':''}" onclick="enhToggleTag(${JSON.stringify(x)})">${tagDraft.includes(x)?'✓ ':''}${esc(x)}</button>`).join('')||'<span class="sheet-note">一致するタグがありません</span>'}
