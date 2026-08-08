@@ -409,11 +409,13 @@
   <div class="sheet">
     <h2>出来事を一気に追加</h2>
     <p class="sheet-note">CSV または Excel ファイルから複数の出来事をまとめて追加します。<br>
-    <b>「年号」と「出来事」は必須</b>、それ以外（終了年号・月・日・説明・ゴロ合わせ・タグ）は任意です。<br>
-    紀元前は「-44」または「紀元前44」、タグは「;」区切りで入力してください。</p>
+    <b>「年号」と「出来事」は必須</b>、それ以外（終了年号・月・日・説明・ゴロ合わせ・タグ・主グループ・関連グループ）は任意です。<br>
+    紀元前は「-44」または「紀元前44」、タグと関連グループの複数指定は「|」区切りです。グループは現在の年表にある名前を入力してください。</p>
     <button class="bigbtn" onclick="downloadTemplate()">⬇️ ファイルの雛形をダウンロード（CSV）</button>
     <button class="bigbtn primary" onclick="document.getElementById('bulk-file').click()">📁 ファイルを選択</button>
     <input type="file" id="bulk-file" accept=".csv,.xlsx,.xls,text/csv" style="display:none" onchange="onBulkFile(this)">
+    <div id="bulk-preview" style="margin-top:10px"></div>
+    <button class="bigbtn primary" id="bulk-commit" onclick="commitBulkPreview()" disabled>確認した内容を追加</button>
     <div class="modal-actions"><button class="btn-cancel" onclick="closeModal('bulk-modal')">閉じる</button></div>
   </div>
 </div>
@@ -1103,19 +1105,7 @@ function openTimelineMenu(){
   document.getElementById('tl-menu-title').textContent = getItem(currentTimelineId).name;
   document.getElementById('tl-menu-modal').classList.add('show');
 }
-function openBulk(){ closeModal('tl-menu-modal'); document.getElementById('bulk-modal').classList.add('show'); }
-
 /* --- CSV template & parsing --- */
-function downloadTemplate(){
-  const rows = [
-    ['年号','終了年号','月','日','出来事','説明','ゴロ合わせ','タグ(;区切り)'],
-    ['645','','3','','大化の改新','蘇我氏を倒す','むしごろし','飛鳥時代;政治改革'],
-    ['-44','','','','カエサル暗殺','共和政ローマの動乱','','古代ローマ'],
-    ['1592','1598','','','文禄・慶長の役','豊臣秀吉の朝鮮出兵','','安土桃山時代']
-  ];
-  const csv = rows.map(r=>r.map(csvCell).join(',')).join('\r\n');
-  download('chronology_template.csv', '﻿'+csv, 'text/csv;charset=utf-8');
-}
 function parseYear(s){
   if(s==null) return null; s=String(s).trim(); if(s==='') return null;
   let m=s.match(/(?:紀元前|BC|B\.C\.)\s*(\d+)/i);
@@ -1140,33 +1130,6 @@ function parseCSV(text){
   if(cur!==''||row.length){ row.push(cur); rows.push(row); }
   return rows.filter(r=>r.some(c=>String(c).trim()!==''));
 }
-function rowsToEvents(rows){
-  if(!rows.length) return {events:[],skipped:0};
-  const header = rows[0].map(h=>String(h).trim());
-  const find = names => header.findIndex(h=>{ const hh=h.replace(/[(（].*$/,'').trim(); return names.includes(hh); });
-  let ci = { year:find(['年号','開始年号','年']), end:find(['終了年号','終了年','終了']),
-             month:find(['月']), day:find(['日']), title:find(['出来事','見出し','タイトル','イベント']),
-             sub:find(['説明','サブタイトル','詳細']), goro:find(['ゴロ合わせ','ゴロ','語呂','語呂合わせ']),
-             tags:find(['タグ']) };
-  let start=1;
-  if(ci.year<0 || ci.title<0){               // ヘッダー無し → 位置で解釈
-    ci={ year:0,end:1,month:2,day:3,title:4,sub:5,goro:6,tags:7 };
-    start = (parseYear(header[0])===null) ? 1 : 0;
-  }
-  const get=(cells,k)=> (ci[k]>=0 && ci[k]<cells.length)? String(cells[ci[k]]).trim() : '';
-  const events=[]; let skipped=0;
-  for(let r=start;r<rows.length;r++){
-    const cells=rows[r];
-    const y=parseYear(get(cells,'year')); const title=get(cells,'title');
-    if(y===null || !title){ skipped++; continue; }
-    const endRaw=get(cells,'end'); const endY=endRaw?parseYear(endRaw):null;
-    const month=parseInt(get(cells,'month'),10)||0;
-    const day=parseInt(get(cells,'day'),10)||0;
-    const tags=get(cells,'tags').split(/[;；,、\/|]/).map(t=>t.trim()).filter(Boolean);
-    events.push(ev(y,title,get(cells,'sub'),get(cells,'goro'),tags,{endYear:(endY!=null?endY:null),month,day}));
-  }
-  return {events,skipped};
-}
 function onBulkFile(input){
   const file=input.files[0]; if(!file){ return; }
   const name=file.name.toLowerCase();
@@ -1187,15 +1150,6 @@ function onBulkFile(input){
     reader.readAsText(file,'UTF-8');
   }
   input.value='';
-}
-function finishBulk(rows){
-  const {events,skipped}=rowsToEvents(rows);
-  if(!events.length){ alert('インポートできる出来事が見つかりませんでした。\n「年号」と「出来事」は必須です。'); return; }
-  const tl=getItem(currentTimelineId);
-  tl.events=tl.events.concat(events);
-  sortEvents(tl); save(); renderTimeline();
-  closeModal('bulk-modal');
-  alert(events.length+'件の出来事がインポートされました'+(skipped?`\n（${skipped}件は年号または出来事が未入力のためスキップしました）`:''));
 }
 function loadSheetJS(ok,fail){
   if(window.XLSX){ ok(); return; }
@@ -1328,6 +1282,168 @@ showScreen('list');
   window.enhCompareSettings=function(){const t=getItem(currentTimelineId);if(!t)return;let m=document.getElementById('enh-compare-settings-modal');if(!m){m=document.createElement('div');m.id='enh-compare-settings-modal';m.className='modal-bg';m.innerHTML='<div class="sheet"><h2>比較表示の設定</h2><p class="sheet-note">表示するグループと「その他」列を設定します。</p><div id="enh-compare-settings-list" class="enh-settings-list"></div><div class="modal-actions"><button class="btn-cancel" onclick="closeModal(\'enh-compare-settings-modal\')">閉じる</button><button class="btn-ok" onclick="enhCompareSettingsSave()">保存</button></div></div>';document.body.appendChild(m)}const s=t.compareState||{selected:(t.groups||[]).map(g=>g.id),showOther:true};document.getElementById('enh-compare-settings-list').innerHTML=(t.groups||[]).map(g=>`<label><input type="checkbox" data-compare-group="${g.id}" ${s.selected.includes(g.id)?'checked':''}> <span style="color:${g.color||'#2f5d8a'}">●</span> ${esc(g.name)}</label>`).join('')+'<label><input id="enh-settings-other" type="checkbox" '+(s.showOther?'checked':'')+'> その他列を表示</label>';m.classList.add('show')};window.enhCompareSettingsSave=function(){const t=getItem(currentTimelineId);t.compareState={selected:[...document.querySelectorAll('[data-compare-group]:checked')].map(x=>x.dataset.compareGroup),showOther:document.getElementById('enh-settings-other').checked};save();closeModal('enh-compare-settings-modal');if(t.viewMode==='compare')renderTimeline()}
   window.__enhGroupModal=groupModal;window.__enhCompareSettingsUI=window.enhCompareSettings;injectListTools();buildPalette();
 })();
+</script>
+<script>
+/* CSV / Excel bulk import: tags and group names */
+let bulkPreviewData = null;
+
+function resetBulkPreview(){
+  bulkPreviewData = null;
+  const preview = document.getElementById('bulk-preview');
+  const commit = document.getElementById('bulk-commit');
+  if(preview) preview.innerHTML = '';
+  if(commit) commit.disabled = true;
+}
+
+function openBulk(){
+  closeModal('tl-menu-modal');
+  resetBulkPreview();
+  document.getElementById('bulk-modal').classList.add('show');
+}
+
+function splitBulkValues(value){
+  return [...new Set(String(value == null ? '' : value)
+    .split(/[|｜;；,、\/]/)
+    .map(value => value.trim())
+    .filter(Boolean))];
+}
+
+function findBulkGroupByName(timeline, name){
+  const normalized = String(name == null ? '' : name).trim();
+  if(!normalized) return null;
+  return (timeline.groups || []).find(group => String(group.name || '').trim() === normalized) || null;
+}
+
+function downloadTemplate(){
+  const timeline = getItem(currentTimelineId);
+  const groupNames = (timeline?.groups || [])
+    .map(group => String(group.name || '').trim())
+    .filter(Boolean);
+  const primary1 = groupNames[0] || 'スペイン';
+  const primary2 = groupNames[1] || groupNames[0] || '神聖ローマ帝国';
+  const related2 = groupNames.filter(name => name !== primary2).slice(0, 2).join('|') ||
+    (groupNames.length ? '' : 'フランス|スウェーデン');
+  const rows = [
+    ['年号','終了年号','月','日','出来事','説明','ゴロ合わせ','タグ(|区切り)','主グループ','関連グループ'],
+    ['1492','','','','コロンブスが新大陸に到達','新大陸へ到達','','大航海時代|探検',primary1,''],
+    ['1618','1648','','','三十年戦争','宗教戦争','','戦争|宗教',primary2,related2]
+  ];
+  const csv = rows.map(row => row.map(csvCell).join(',')).join('\r\n');
+  download('chronology_template.csv', '\ufeff' + csv, 'text/csv;charset=utf-8');
+}
+
+function rowsToEvents(rows, timeline = getItem(currentTimelineId)){
+  if(!rows.length) return {events:[], skipped:0, items:[]};
+  const header = rows[0].map(value => String(value).trim());
+  const find = names => header.findIndex(value => {
+    const normalized = value.replace(/[\(（].*$/, '').trim();
+    return names.includes(normalized);
+  });
+  let columns = {
+    year:find(['年号','開始年号','年']), end:find(['終了年号','終了年','終了']),
+    month:find(['月']), day:find(['日']), title:find(['出来事','見出し','タイトル','イベント']),
+    sub:find(['説明','サブタイトル','詳細']), goro:find(['ゴロ合わせ','ゴロ','語呂','語呂合わせ']),
+    tags:find(['タグ']), primary:find(['主グループ','メイングループ']), related:find(['関連グループ'])
+  };
+  let start = 1;
+  if(columns.year < 0 || columns.title < 0){
+    columns = {year:0,end:1,month:2,day:3,title:4,sub:5,goro:6,tags:7,primary:8,related:9};
+    start = parseYear(header[0]) === null ? 1 : 0;
+  }
+  const get = (cells, key) => columns[key] >= 0 && columns[key] < cells.length
+    ? String(cells[columns[key]]).trim() : '';
+  const events = [];
+  const items = [];
+  for(let rowIndex = start; rowIndex < rows.length; rowIndex++){
+    const cells = rows[rowIndex];
+    const year = parseYear(get(cells,'year'));
+    const title = get(cells,'title');
+    const tags = splitBulkValues(get(cells,'tags'));
+    const primaryName = get(cells,'primary').trim();
+    const relatedNames = splitBulkValues(get(cells,'related'))
+      .filter(name => name !== primaryName);
+    const errors = [];
+    if(year === null) errors.push('年号が不正です');
+    if(!title) errors.push('出来事が空欄です');
+
+    const primaryGroup = primaryName ? findBulkGroupByName(timeline, primaryName) : null;
+    if(primaryName && !primaryGroup) errors.push('存在しないグループ: ' + primaryName);
+    const relatedGroups = [];
+    relatedNames.forEach(name => {
+      const group = findBulkGroupByName(timeline, name);
+      if(!group) errors.push('存在しないグループ: ' + name);
+      else if(!relatedGroups.some(item => item.id === group.id)) relatedGroups.push(group);
+    });
+
+    let event = null;
+    if(year !== null && title){
+      const endRaw = get(cells,'end');
+      const endYear = endRaw ? parseYear(endRaw) : null;
+      event = ev(year,title,get(cells,'sub'),get(cells,'goro'),tags,{
+        endYear:endYear != null ? endYear : null,
+        month:parseInt(get(cells,'month'),10) || 0,
+        day:parseInt(get(cells,'day'),10) || 0
+      });
+      event.groups = primaryGroup ? [primaryGroup.id] : [];
+      event.relatedGroups = [...new Set(relatedGroups.map(group => group.id))]
+        .filter(id => !event.groups.includes(id));
+      event.compareMode = 'primary';
+      event.color = null;
+      event.exclude = false;
+    }
+    const item = {row:rowIndex + 1, title, tags, primaryName, relatedNames, errors, event};
+    items.push(item);
+    if(event && errors.length === 0) events.push(event);
+  }
+  return {events, skipped:items.filter(item => item.errors.length > 0).length, items};
+}
+
+function renderBulkPreview(result){
+  const preview = document.getElementById('bulk-preview');
+  if(!preview) return;
+  if(!result.items.length){
+    preview.innerHTML = '<div class="enh-result preview-err">登録できるデータ行がありません。</div>';
+    return;
+  }
+  const errorCount = result.items.filter(item => item.errors.length).length;
+  const details = result.items.map(item => {
+    if(item.errors.length){
+      return '<div class="preview-err">' + item.row + '行目: ' +
+        item.errors.map(esc).join(' / ') + '</div>';
+    }
+    const tags = item.tags.length ? item.tags.join(' | ') : 'なし';
+    const primary = item.primaryName || 'なし';
+    const related = item.relatedNames.length ? item.relatedNames.join(' | ') : 'なし';
+    return '<div class="preview-ok">' + item.row + '行目: ' + esc(item.title) + '</div>' +
+      '<div class="sheet-note">タグ: ' + esc(tags) + ' / 主グループ: ' + esc(primary) +
+      ' / 関連グループ: ' + esc(related) + '</div>';
+  }).join('');
+  preview.innerHTML = '<div class="enh-result">登録可能: ' + result.events.length +
+    '件　エラー: ' + errorCount + '件<br>' + details + '</div>';
+}
+
+function finishBulk(rows){
+  const timeline = getItem(currentTimelineId);
+  bulkPreviewData = rowsToEvents(rows, timeline);
+  renderBulkPreview(bulkPreviewData);
+  const commit = document.getElementById('bulk-commit');
+  if(commit) commit.disabled = bulkPreviewData.events.length === 0;
+}
+
+function commitBulkPreview(){
+  if(!bulkPreviewData || !bulkPreviewData.events.length) return;
+  const timeline = getItem(currentTimelineId);
+  const events = bulkPreviewData.events;
+  const skipped = bulkPreviewData.items.filter(item => item.errors.length).length;
+  timeline.events = timeline.events.concat(events);
+  sortEvents(timeline);
+  save();
+  renderTimeline();
+  closeModal('bulk-modal');
+  resetBulkPreview();
+  alert(events.length + '件の出来事をインポートしました' +
+    (skipped ? '\n' + skipped + '件はエラーのため登録しませんでした' : ''));
+}
 </script>
 <script>
   if(window.__enhGroupModal) window.enhGroups=window.__enhGroupModal;
